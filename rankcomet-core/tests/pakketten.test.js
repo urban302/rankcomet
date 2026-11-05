@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { nieuweDb, startApp, registreerEnLogin, post } from './helpers.js';
+import { nieuweDb, startApp, registreerEnLogin, post, registreerBevestigd } from './helpers.js';
 import * as acc from '../src/accounts.js';
 import * as sites from '../src/sites.js';
 import { laadPakketten } from '../src/config.js';
@@ -28,7 +28,7 @@ test('limieten artikelen en zoekwoorden', () => {
 
 for (const [pakket, max] of [['solo', 1], ['pro', 3], ['bureau_proef', 5]]) {
   test(`sitelimiet ${pakket} = ${max}, daarboven NL-melding met upgrade`, async () => {
-    const a = await acc.registreer(db, `${pakket}@test.invalid`, 'Testwachtwoord-123!', pakket);
+    const a = await registreerBevestigd(db, `${pakket}@test.invalid`, 'Testwachtwoord-123!', pakket);
     for (let i = 0; i < max; i++) await sites.voegSiteToe(db, a, { domein: `s${i}-${pakket.replace('_', '')}.test`, platform: 'wordpress' });
     const fout = await sites.voegSiteToe(db, a, { domein: `extra-${pakket.replace('_', '')}.test`, platform: 'wordpress' }).catch((e) => e);
     assert.equal(fout.status, 403);
@@ -39,7 +39,7 @@ for (const [pakket, max] of [['solo', 1], ['pro', 3], ['bureau_proef', 5]]) {
 }
 
 test('HTTP: tweede site bij Solo geweigerd met upgrade-link', async () => {
-  const c = await registreerEnLogin(app.basis, 'solo-http@test.invalid');
+  const c = await registreerEnLogin(app, 'solo-http@test.invalid');
   assert.equal((await post(app.basis, '/sites/nieuw', { domein: 'een.test', taal: 'nl', land: 'NL', platform: 'wordpress' }, c)).status, 303);
   const r = await post(app.basis, '/sites/nieuw', { domein: 'twee.test', taal: 'nl', land: 'NL', platform: 'wordpress' }, c);
   assert.equal(r.status, 403);

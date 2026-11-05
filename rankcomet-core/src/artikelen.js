@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { Fout } from './accounts.js';
 import { pakketVoor, upgradeOptie } from './pakketten.js';
 
-export function huidigeMaand(nu = new Date()) { return nu.toISOString().slice(0, 7); } // [A] maand in UTC
+// [A22] Een artikelmaand is de kalendermaand in Nederlandse tijd (Europe/Amsterdam), ook rond de zomertijd.
+const NL_MAAND = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit' });
+export function huidigeMaand(nu = new Date()) { return NL_MAAND.format(nu); } // 'YYYY-MM'
 
 export async function reserveerArtikel(db, account, siteId, nu = new Date()) {
   const maand = huidigeMaand(nu);

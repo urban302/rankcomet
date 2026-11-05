@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 klaar (fork opgeschoond), 46/46 tests groen op SQLite. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 en stap 1 klaar, 55/55 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -16,7 +16,11 @@ Doel: alleen houden wat Rankcomet echt gaat gebruiken, zodat de repo klein en be
 6. Pas `README.md` aan: wat Rankcomet is, hoe je de tests draait, waar de regels staan.
 7. Tests blijven 43/43 groen.
 
-## Stap 1: R3, accounts afmaken
+## Stap 1: R3, accounts afmaken, KLAAR
+Gedaan: wachtwoord vergeten met eenmalige link, e-mailverificatie (zonder bevestiging geen site koppelen), rate limiting op inloggen, aanmelden, wachtwoord vergeten en bevestigingsmail, artikelmaand in Nederlandse tijd. Aannames A29 tot A36 in `rankcomet-core/installatie.md`. Nog nodig voor de uitrol: een echte mailer (A34) en RC_VERTROUW_PROXY=1 achter de proxy (A33).
+
+Besloten door Erwin bij stap 0: de zoekwoordcode in `vendor-openseo/` wordt zelf omgezet naar gewoon JavaScript, zonder nieuwe pakketten. Search Console, rank tracking en de veilige fetcher blijven staan.
+
 - Wachtwoord vergeten: eenmalige link (token als sha256 in de database, kort geldig, één keer bruikbaar). Mail versturen via een geïnjecteerde mailer; in tests een nep-mailer.
 - E-mailverificatie bij aanmelden. Zonder verificatie geen site koppelen.
 - Rate limiting op inloggen, aanmelden en wachtwoord vergeten (per IP en per e-mailadres, zonder die waarden te loggen).

@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS artikelen (
   maand TEXT NOT NULL,
   aangemaakt TEXT NOT NULL
 );
+-- R3: eenmalige links (e-mail bevestigen, wachtwoord herstellen). Alleen de sha256 van het token
+-- staat hier. 'gebruikt' wordt gezet bij het eerste gebruik; daarna werkt de link niet meer.
+CREATE TABLE IF NOT EXISTS eenmalige_tokens (
+  token_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  doel TEXT NOT NULL,
+  verloopt TEXT NOT NULL,
+  gebruikt TEXT NULL,
+  aangemaakt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS eenmalige_tokens_account_idx ON eenmalige_tokens(account_id);
 CREATE INDEX IF NOT EXISTS artikelen_site_maand_idx ON artikelen(site_id, maand);
 CREATE INDEX IF NOT EXISTS sites_account_idx ON sites(account_id);
 CREATE INDEX IF NOT EXISTS sessies_account_idx ON sessies(account_id);
@@ -141,12 +152,19 @@ export async function maakDb(env = process.env) {
   return new SqliteDb(env.RC_SQLITE_BESTAND || ':memory:').open();
 }
 
-// Migraties verwijderen niets (alleen CREATE ... IF NOT EXISTS).
-export async function migreer(db) { await db.exec(SCHEMA); }
+// Migraties verwijderen niets (alleen CREATE ... IF NOT EXISTS en kolommen toevoegen).
+export async function migreer(db) {
+  await db.exec(SCHEMA);
+  // R3: moment waarop het e-mailadres is bevestigd (NULL = nog niet bevestigd).
+  if (db.soort === 'pg') await db.exec('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_geverifieerd TEXT NULL');
+  else if (!(await db.query("SELECT name FROM pragma_table_info('accounts')")).rows.some((k) => k.name === 'email_geverifieerd')) {
+    await db.exec('ALTER TABLE accounts ADD COLUMN email_geverifieerd TEXT NULL');
+  }
+}
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

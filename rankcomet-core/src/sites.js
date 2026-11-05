@@ -37,6 +37,9 @@ export async function voegSiteToe(db, account, { domein, taal = 'nl', land = 'NL
     return { wachtlijst: true, bericht: `${merk.platforms_wachtlijst[platform]} wordt nog niet ondersteund. We hebben ${domein} op de wachtlijst gezet en laten het weten zodra het kan.` };
   }
   if (!merk.platforms_actief[platform]) throw new Fout('Kies WordPress of WooCommerce, of een platform voor de wachtlijst.');
+  // R3: zonder bevestigd e-mailadres geen site koppelen. De wachtlijst hierboven mag wel.
+  const bevestigd = (await db.query('SELECT email_geverifieerd FROM accounts WHERE id = $1', [account.id])).rows[0]?.email_geverifieerd;
+  if (!bevestigd) throw new Fout('Bevestig eerst je e-mailadres. Daarna kun je een site koppelen. Kijk in je mail of vraag op je dashboard een nieuwe mail aan.', 403, { onbevestigd: true });
   const pk = pakketVoor(account.pakket);
   if (platform === 'woocommerce' && !pk.woocommerce_koppelen) {
     // A8 (besloten door Erwin 1-11): WooCommerce alleen vanaf Pro.

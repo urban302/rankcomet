@@ -23,7 +23,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const logger = maakLogger(db, { stil: false });
   // [A] De echte Stripe-client wordt pas in een latere levering gekoppeld; R1 heeft alleen een mock.
   const stripe = { checkout: { sessions: { create: async () => { throw new Error('Stripe-client nog niet gekoppeld (R1)'); } } } };
-  const app = maakApp({ db, stripe, logger });
+  // [A34] Nog geen echte mailer (SMTP of mailprovider in de EU volgt). Tot dan mislukt elke mail; de app
+  // logt dat en de klant kan het later opnieuw proberen.
+  const mailer = { stuur: async () => { throw new Error('Mailer nog niet gekoppeld (R3)'); } };
+  const app = maakApp({ db, stripe, mailer, logger });
   const poort = Number(process.env.RC_POORT || 3100);
   app.listen(poort, '127.0.0.1', () => process.stdout.write(`Rankcomet luistert op 127.0.0.1:${poort}\n`));
   setInterval(() => logger.ruimOp(bewaartermijnDagen()).catch(() => {}), 6 * 3600 * 1000).unref();
