@@ -1,10 +1,12 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373), 43/43 tests groen op SQLite. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 klaar (fork opgeschoond), 46/46 tests groen op SQLite. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
-## Stap 0: OpenSEO-fork opschonen (keuze A van Erwin)
+## Stap 0: OpenSEO-fork opschonen (keuze A van Erwin), KLAAR
+Gedaan: zoekwoordcode bewaard in `vendor-openseo/` (met LEESMIJ), de rest van OpenSEO verwijderd, README en AGENTS.md vervangen, `package-lock.json` van de kern toegevoegd (stond door de oude `.gitignore` niet in git), testworkflow voor de kern. Zie de pull request voor de lijst per map.
+
 Doel: alleen houden wat Rankcomet echt gaat gebruiken, zodat de repo klein en begrijpelijk is.
 1. Breng in kaart wat de fork bevat (`src/`, `web/`, `plugins/`, `drizzle/`, `deploy/`, Cloudflare- en Every App-config, `docs/`, `specs/`). Schrijf in de PR per map: houden, weg, of later.
 2. Houden: de zoekwoordonderzoek-logica die we later via een adapter aan `rankcomet-core` koppelen (DataForSEO-aanroepen, verwerking van zoekwoorden en SERP-data). Zet die in een eigen map, bijvoorbeeld `rankcomet-core/src/zoekwoorden/` of `vendor-openseo/`, met een korte LEESMIJ over de herkomst.

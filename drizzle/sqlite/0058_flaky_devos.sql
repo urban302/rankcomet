@@ -1,1 +1,0 @@
-ALTER TABLE `projects` ADD `indexnow_key` text;

@@ -9,9 +9,9 @@ De repo is een fork van OpenSEO (MIT). Daarnaast staat onze eigen kern in `rankc
 - Node 24 (minimaal 22.5), alleen `node:http`, `node:crypto`, `node:sqlite` en `pg` 8.13.1.
 - Productie draait alleen op Postgres (`RC_DB=pg`). SQLite is alleen voor tests.
 - Accounts, pakketten (Solo €39, Pro €89, Bureau-proef €149, excl. btw), Stripe in testmodus, NL-UI, EU-config voor Azure OpenAI.
-- De OpenSEO-code (TanStack, Cloudflare Workers, D1) wordt door de kern nog niet gebruikt. Zie stap 0 in `VOLGENDE-STAPPEN.md`.
+- Van OpenSEO is alleen de code voor zoekwoordonderzoek bewaard, in `vendor-openseo/` (zie de LEESMIJ daar). Die draait nog niet; de kern koppelt hem later via een adapter.
 
-`AGENTS.md` komt uit OpenSEO. Die regels gelden alleen voor OpenSEO-code die we bewust houden. Bij een conflict wint dit bestand. Volg nooit de uitrolinstructies uit `AGENTS.md` (Every App, `wrangler deploy`, `cf deploy`).
+`AGENTS.md` verwijst alleen naar dit bestand. De OpenSEO-regels (Every App, Cloudflare, `wrangler deploy`) gelden niet meer.
 
 ## Harde regels (nooit van afwijken)
 - **Niets publiceren zonder akkoord van een mens.** Elke wijziging op een klantsite gaat eerst als concept. Publiceren gebeurt pas na een expliciete goedkeuring in de app.
@@ -34,7 +34,7 @@ De repo is een fork van OpenSEO (MIT). Daarnaast staat onze eigen kern in `rankc
 ```
 cd rankcomet-core
 npm ci --offline
-env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 43/43 groen
+env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 46/46 groen
 RC_DB=pg PG_TEST_HOST=... PG_TEST_USER=... PG_TEST_DB=... PG_TEST_PWFILE=... npm run test:pg
 ```
 - Tests moeten groen blijven op SQLite. Raakt je wijziging de database, draai dan ook de PG-tests (of meld dat er geen test-PG was).

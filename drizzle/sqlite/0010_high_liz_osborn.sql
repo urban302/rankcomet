@@ -1,1 +1,0 @@
-ALTER TABLE `user` ADD `analytics_opted_out` integer;
