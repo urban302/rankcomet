@@ -1,14 +1,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { nieuweDb, startApp, registreerEnLogin, post } from './helpers.js';
+import { nieuweDb, startApp, registreerEnLogin, post, registreerBevestigd } from './helpers.js';
 import * as acc from '../src/accounts.js';
 import * as sites from '../src/sites.js';
 
 let db, app; before(async () => { db = await nieuweDb(); app = await startApp(db); }); after(async () => { await app.sluit(); await db.sluit(); });
 
 test('account A ziet nooit sites van account B (laag sites)', async () => {
-  const a = await acc.registreer(db, 'a@test.invalid', 'Testwachtwoord-123!', 'pro');
-  const b = await acc.registreer(db, 'b@test.invalid', 'Testwachtwoord-123!', 'pro');
+  const a = await registreerBevestigd(db, 'a@test.invalid', 'Testwachtwoord-123!', 'pro');
+  const b = await registreerBevestigd(db, 'b@test.invalid', 'Testwachtwoord-123!', 'pro');
   const sb = (await sites.voegSiteToe(db, b, { domein: 'site-b.test', platform: 'wordpress', land: 'NL' })).site;
   await sites.voegSiteToe(db, a, { domein: 'site-a.test', platform: 'woocommerce', land: 'BE' });
   assert.deepEqual((await sites.lijstSites(db, a.id)).map((s) => s.domein), ['site-a.test']);
@@ -21,8 +21,8 @@ test('account A ziet nooit sites van account B (laag sites)', async () => {
 });
 
 test('account A ziet nooit sites van account B (HTTP)', async () => {
-  const ca = await registreerEnLogin(app.basis, 'http-a@test.invalid');
-  const cb = await registreerEnLogin(app.basis, 'http-b@test.invalid');
+  const ca = await registreerEnLogin(app, 'http-a@test.invalid');
+  const cb = await registreerEnLogin(app, 'http-b@test.invalid');
   assert.equal((await post(app.basis, '/sites/nieuw', { domein: 'geheim-b.test', taal: 'nl', land: 'NL', platform: 'wordpress' }, cb)).status, 303);
   const lijstB = await (await fetch(app.basis + '/api/sites', { headers: { cookie: cb } })).json();
   const idB = lijstB.sites[0].id;
