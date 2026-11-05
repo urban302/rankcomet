@@ -57,8 +57,8 @@ Productie: `RC_DB=pg RC_DATABASE_URL=... (overige env) node src/server.js`. De a
 - [A17] Wachtlijst-platforms: Shopify, Webflow, Wix, Lightspeed, Ander platform.
 - [A18] Geen prompts in R1; map rankcomet-core/prompts/ is leeg (met LEESMIJ).
 - [A19] Migraties zijn alleen CREATE ... IF NOT EXISTS en verwijderen niets.
-- [A20] (R2) Bureau-proef mag een WooCommerce-site koppelen (net als Pro, `woocommerce_koppelen: true`). Niet expliciet door Erwin besloten; ter bevestiging.
-- [A21] (R2) Bureau-proef: naast 10 per site geldt ook het totaal van 50 per account; Solo (10) en Pro (30) houden alleen een limiet per account.
+- [A20] (R2) Bureau-proef mag een WooCommerce-site koppelen (net als Pro, `woocommerce_koppelen: true`). Bevestigd door Erwin op 5-11.
+- [A21] (R2, bevestigd door Erwin op 5-11) Bureau-proef: naast 10 per site geldt ook het totaal van 50 per account; Solo (10) en Pro (30) houden alleen een limiet per account.
 - [A22] (R2) Een artikelmaand is de kalendermaand in UTC (`YYYY-MM`). Een artikel telt zodra het is gereserveerd; terugboeken bij een mislukte generatie volgt in het artikelblok.
 - [A23] (R2) Een webhook die bij de verwerking faalt (bijv. onbekend pakket) geeft 400 (Fout) of 500 (andere fout) en wordt niet vastgelegd; Stripe probeert het opnieuw. Een blijvend fout event blijft dus terugkomen tot Stripe stopt (max. ca. 3 dagen); er is nog geen aparte 'dead letter'-tabel.
 - [A24] (R2) Transacties op sqlite (alleen tests): één verbinding, transacties achter elkaar via een mutex met BEGIN IMMEDIATE. Losse query's buiten een transactie kunnen daar tussendoor lopen; dat is alleen in de testopzet zo.

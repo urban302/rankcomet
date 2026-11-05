@@ -19,9 +19,9 @@ Doel: alleen houden wat Rankcomet echt gaat gebruiken, zodat de repo klein en be
 - E-mailverificatie bij aanmelden. Zonder verificatie geen site koppelen.
 - Rate limiting op inloggen, aanmelden en wachtwoord vergeten (per IP en per e-mailadres, zonder die waarden te loggen).
 - Artikelmaand in Nederlandse tijd (`Europe/Amsterdam`) in plaats van UTC (A22). Test rond middernacht op de eerste van de maand en rond de zomertijdwissel.
-- Beslissingen ter bevestiging bij Erwin, in de PR noemen:
-  - A20: mag Bureau-proef een WooCommerce-site koppelen?
-  - A21: geldt bij Bureau-proef naast 10 per site ook een totaal van 50 per account?
+- Besloten door Erwin op 5-11 (geen open vraag meer):
+  - A20: ja, Bureau-proef mag een WooCommerce-site koppelen (zoals nu in de code).
+  - A21: ja, bij Bureau-proef geldt naast 10 per site ook een totaal van 50 per account (zoals nu in de code).
 
 ## Stap 2: eigendom van het domein controleren
 - Een site telt pas als gekoppeld als de klant bewijst dat het domein van hem is.
