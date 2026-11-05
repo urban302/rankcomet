@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  rankcomet-core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rankcomet-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --offline
+      - run: npm test

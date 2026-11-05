@@ -1,1 +1,0 @@
-ALTER TABLE `saved_keyword_tags` ADD `color` text;

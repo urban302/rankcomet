@@ -1,1 +1,0 @@
-ALTER TABLE `rank_tracking_keywords` ADD `pinned_at` text;

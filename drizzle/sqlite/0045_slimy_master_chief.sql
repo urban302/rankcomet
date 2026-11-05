@@ -1,1 +1,0 @@
-ALTER TABLE `rank_tracking_keywords` ADD `match_case` integer DEFAULT false NOT NULL;
