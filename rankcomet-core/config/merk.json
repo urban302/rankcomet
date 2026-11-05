@@ -1,0 +1,9 @@
+{
+  "merk": "Rankcomet",
+  "domein": "rankcomet.ai",
+  "basis_url": "https://rankcomet.ai",
+  "taal": "nl",
+  "landen": {"NL": "Nederland", "BE": "België"},
+  "platforms_actief": {"wordpress": "WordPress", "woocommerce": "WooCommerce"},
+  "platforms_wachtlijst": {"shopify": "Shopify", "webflow": "Webflow", "wix": "Wix", "lightspeed": "Lightspeed", "anders": "Ander platform"}
+}

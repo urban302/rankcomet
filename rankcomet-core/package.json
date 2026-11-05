@@ -1,0 +1,31 @@
+{
+  "name": "rankcomet-core",
+  "version": "0.1.0-r2",
+  "private": true,
+  "type": "module",
+  "description": "Rankcomet.ai blok 1 (R2): accounts, pakketten, Stripe (testmodus), NL-UI, EU-config. Bovenop de OpenSEO-fork (MIT).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/*.test.js\"",
+    "test:pg": "RC_DB=pg node --test --test-concurrency=1 \"tests/*.test.js\"",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "pg": "file:vendor/pg-8.13.1.tgz",
+    "pg-cloudflare": "file:vendor/pg-cloudflare-1.4.1.tgz",
+    "pg-connection-string": "file:vendor/pg-connection-string-2.14.1.tgz",
+    "pg-int8": "file:vendor/pg-int8-1.0.1.tgz",
+    "pg-pool": "file:vendor/pg-pool-3.14.0.tgz",
+    "pg-protocol": "file:vendor/pg-protocol-1.16.1.tgz",
+    "pg-types": "file:vendor/pg-types-2.2.0.tgz",
+    "pgpass": "file:vendor/pgpass-1.0.6.tgz",
+    "postgres-array": "file:vendor/postgres-array-2.0.0.tgz",
+    "postgres-bytea": "file:vendor/postgres-bytea-1.0.1.tgz",
+    "postgres-date": "file:vendor/postgres-date-1.0.7.tgz",
+    "postgres-interval": "file:vendor/postgres-interval-1.2.0.tgz",
+    "xtend": "file:vendor/xtend-4.0.2.tgz"
+  }
+}
