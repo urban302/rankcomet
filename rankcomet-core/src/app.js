@@ -8,13 +8,15 @@ import { prijsTekst } from './pakketten.js';
 import { maakCheckout, verwerkWebhook } from './stripe.js';
 import { maakBegrenzer, STANDAARD_GRENZEN } from './grens.js';
 import { verificatieMail, herstelMail } from './mail.js';
+import * as wijz from './wijzigingen.js';
+import { laadSleutel } from './geheimen.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function pagina(titel, inhoud, account) {
   const m = laadMerk();
   const nav = account
-    ? `<nav><a href="/dashboard">Dashboard</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen" style="display:inline"><button>Uitloggen</button></form></nav>`
+    ? `<nav><a href="/dashboard">Dashboard</a> <a href="/wijzigingen">Wacht op jou</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen" style="display:inline"><button>Uitloggen</button></form></nav>`
     : `<nav><a href="/inloggen">Inloggen</a> <a href="/registreren">Account aanmaken</a> <a href="/over">Over</a></nav>`;
   return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titel)} · ${esc(m.merk)}</title></head><body><header><strong>${esc(m.merk)}</strong> ${nav}</header><main><h1>${esc(titel)}</h1>${inhoud}</main><footer><small>${esc(m.merk)} · ${esc(m.domein)} · <a href="/over">Over en licenties</a></small></footer></body></html>`;
 }
@@ -33,6 +35,7 @@ const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new R
 
 export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
+  const ctx = { ophalen, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
   const begrenzer = maakBegrenzer(grenzen);
   // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
   // laatste adres uit X-Forwarded-For (dat zet onze eigen proxy). Zonder die instelling negeren we de header,
@@ -156,8 +159,10 @@ export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env
     if (m === 'GET' && pad === '/dashboard') {
       const lijst = await sites.lijstSites(db, account.id);
       const pk = laadPakketten().pakketten[account.pakket];
-      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)} · ${s.bevestigd ? 'gekoppeld' : `<a href="/sites/${esc(s.id)}/koppelen">nog koppelen</a>`}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
-      return stuur(res, 200, pagina('Dashboard', `${account.geverifieerd ? '' : bevestigMelding()}<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
+      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)} · ${s.bevestigd ? `gekoppeld · <a href="/sites/${esc(s.id)}/plugin">plugin</a>` : `<a href="/sites/${esc(s.id)}/koppelen">nog koppelen</a>`}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
+      const open = (await wijz.lijst(db, account.id, { status: 'voorstel' })).length;
+      const wacht = open ? `<section role="status"><p><strong>Wacht op jou:</strong> ${open} ${open === 1 ? 'voorstel' : 'voorstellen'}. <a href="/wijzigingen">Bekijk en keur goed</a></p></section>` : '';
+      return stuur(res, 200, pagina('Dashboard', `${account.geverifieerd ? '' : bevestigMelding()}${wacht}<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
     if (m === 'GET' && pad.startsWith('/api/sites/')) {
@@ -201,6 +206,53 @@ export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env
         }
       }
     }
+    // Stap 3: pluginsleutel per site. De sleutel is één keer zichtbaar, daarna alleen versleuteld opgeslagen.
+    const plugin = pad.match(/^\/sites\/([^/]+)\/plugin(\/sleutel)?$/);
+    if (plugin) {
+      const siteId = plugin[1];
+      const site = await sites.haalSite(db, account.id, siteId);
+      if (!site) return stuur(res, 404, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account));
+      if (m === 'GET' && !plugin[2]) {
+        const info = await sites.koppelcodeVoor(db, account.id, siteId);
+        return stuur(res, 200, pagina(`Plugin voor ${site.domein}`, pluginPagina(site, info), account));
+      }
+      if (m === 'POST' && plugin[2]) {
+        const sleutel = await wijz.maakPluginSleutel(db, ctx.geheimenSleutel, account.id, siteId);
+        await logger.log('info', `pluginsleutel gemaakt account=${account.id} site=${siteId}`);
+        return stuur(res, 200, pagina(`Plugin voor ${site.domein}`, `<p>Dit is je nieuwe sleutel. Kopieer hem nu, we laten hem maar één keer zien.</p><pre><code>${esc(sleutel)}</code></pre><p>Plak de sleutel in WordPress bij Instellingen, Rankcomet. Een oude sleutel werkt vanaf nu niet meer.</p><p><a href="/sites/${esc(siteId)}/plugin">Terug</a></p>`, account));
+      }
+    }
+    // Stap 3: voorstellen bekijken, goedkeuren, afwijzen, terugzetten. Alles gefilterd op account.
+    if (m === 'GET' && pad === '/wijzigingen') {
+      const alles = await wijz.lijst(db, account.id);
+      const rij = (w) => `<li><a href="/wijzigingen/${esc(w.id)}">${esc(w.domein)}: ${esc(doelTekst(w))}</a> · ${esc(statusTekst(w.status))}</li>`;
+      const open = alles.filter((w) => w.status === 'voorstel'), rest = alles.filter((w) => w.status !== 'voorstel');
+      return stuur(res, 200, pagina('Wacht op jou', `<h2>Nog te beoordelen</h2><ul>${open.map(rij).join('') || '<li>Niets. Rankcomet heeft nu geen voorstellen voor je.</li>'}</ul><h2>Eerder behandeld</h2><ul>${rest.slice(0, 50).map(rij).join('') || '<li>Nog niets.</li>'}</ul>`, account));
+    }
+    const wm = pad.match(/^\/wijzigingen\/([^/]+)(?:\/(goedkeuren|afwijzen|terugzetten|opnieuw))?$/);
+    if (wm) {
+      const [, id, actie] = wm;
+      const w = await wijz.haal(db, account.id, id);
+      if (!w) return stuur(res, 404, pagina('Niet gevonden', '<p>Dit voorstel bestaat niet.</p>', account));
+      if (m === 'GET' && !actie) return stuur(res, 200, pagina(doelTekst(w), wijzigingPagina(w), account));
+      if (m === 'POST' && actie) {
+        const f = formulier(await leesBody(req));
+        try {
+          let uitkomst;
+          if (actie === 'goedkeuren') uitkomst = await wijz.keurGoed(db, ctx, account, id, f.modus);
+          else if (actie === 'afwijzen') { await wijz.wijsAf(db, account, id, f.reden); uitkomst = { afgewezen: true }; }
+          else if (actie === 'terugzetten') uitkomst = await wijz.zetTerug(db, ctx, account, id);
+          else uitkomst = await wijz.publiceer(db, ctx, account, id);
+          await logger.log('info', `wijziging ${actie} account=${account.id} wijziging=${id} status=${uitkomst.wijziging ? uitkomst.wijziging.status : 'afgewezen'}`);
+          const tekst = uitkomst.afgewezen ? 'Dit voorstel doen we niet.' : uitkomst.terugNaarRij ? 'Je site is intussen aangepast. We hebben het voorstel bijgewerkt; kijk het nog eens na.' : actie === 'terugzetten' ? 'De oude tekst staat weer op je site.' : uitkomst.wijziging.modus === 'publiceren' ? 'Het staat live op je site.' : 'Het staat als concept klaar op je site.';
+          return stuur(res, 200, pagina(doelTekst(w), `<p>${esc(tekst)}</p><p><a href="/wijzigingen/${esc(id)}">Bekijk</a> · <a href="/wijzigingen">Terug naar de lijst</a></p>`, account));
+        } catch (e) {
+          if (!(e instanceof acc.Fout)) throw e;
+          await logger.log('info', `wijziging ${actie} mislukt account=${account.id} wijziging=${id} status=${e.status}`);
+          return stuur(res, e.status, pagina(doelTekst(w), wijzigingPagina(await wijz.haal(db, account.id, id), e.message), account));
+        }
+      }
+    }
     if (m === 'GET' && pad === '/pakketten') {
       const cfg = laadPakketten();
       const kaarten = cfg.volgorde.map((id) => { const p = cfg.pakketten[id]; return `<section><h2>${esc(p.naam)}</h2><p>${esc(prijsTekst(p.prijs_cent))}</p><ul><li>${p.max_sites} ${p.max_sites === 1 ? 'site' : 'sites'}</li><li>${p.artikelen_per_site_per_maand ? `${p.artikelen_per_site_per_maand} artikelen per site per maand (${p.artikelen_per_maand} totaal)` : `${p.artikelen_per_maand} artikelen per maand`}</li>${p.woocommerce_koppelen ? '<li>WooCommerce-webshop koppelen</li>' : ''}<li>${p.zoekwoorden_volgen} zoekwoorden volgen</li>${p.woocommerce_producten ? '<li>WooCommerce-productteksten</li>' : ''}</ul><form method="post" action="/abonnement/checkout"><input type="hidden" name="pakket" value="${esc(id)}"><button>Kies ${esc(p.naam)}</button></form></section>`; }).join('');
@@ -238,6 +290,24 @@ function herstelForm(token, fout) {
 
 function koppelPagina(info, siteId, fout) {
   return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}<p>Laat zien dat ${esc(info.domein)} van jou is. Zet deze regel in de <code>&lt;head&gt;</code> van je homepage:</p><pre><code>${esc(info.metatag)}</code></pre><p>In WordPress kan dat met een plugin voor koptekst, of met de Rankcomet-plugin zodra die er is. Klik daarna op de knop.</p><form method="post" action="/sites/${esc(siteId)}/koppelen/controleer"><button>Controleer mijn site</button></form><p><a href="/dashboard">Later doen</a></p>`;
+}
+
+function pluginPagina(site, info) {
+  return `<p>Met de Rankcomet-plugin zet Rankcomet teksten als concept klaar op ${esc(site.domein)}. Publiceren gebeurt pas nadat jij hier akkoord geeft.</p><ol><li>Installeer de plugin <code>rankcomet.zip</code> in WordPress (Plugins, Nieuwe plugin, Plugin uploaden).</li><li>Ga naar Instellingen, Rankcomet en vul de koppelcode in: <code>${esc(info.koppelcode)}</code></li><li>Maak hieronder een sleutel en plak die in hetzelfde scherm.</li></ol><form method="post" action="/sites/${esc(site.id)}/plugin/sleutel"><button>Maak een sleutel</button></form><p><a href="/dashboard">Terug</a></p>`;
+}
+
+const DOEL_TEKST = { post: 'Bericht', pagina: 'Pagina', product: 'Product', productcategorie: 'Productcategorie' };
+const STATUS_TEKST = { voorstel: 'wacht op jou', goedgekeurd: 'wordt verwerkt', gepubliceerd: 'staat op je site', afgewezen: 'niet gedaan', teruggezet: 'teruggezet', mislukt: 'niet gelukt' };
+const doelTekst = (w) => `${DOEL_TEKST[w.doel_type] || w.doel_type}${w.doel_id ? ` ${w.doel_id}` : ' (nieuw)'}`;
+const statusTekst = (st) => STATUS_TEKST[st] || st;
+
+function wijzigingPagina(w, fout) {
+  const velden = Object.entries(w.velden).map(([veld, v]) => `<section><h3>${esc(veld.replace(/_/g, ' '))}</h3>${v.oud !== null ? `<p><strong>Nu:</strong></p><pre>${esc(v.oud)}</pre>` : ''}<p><strong>Voorstel:</strong></p><pre>${esc(v.nieuw)}</pre></section>`).join('');
+  let knoppen = '';
+  if (w.status === 'voorstel') knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/goedkeuren"><label><input type="radio" name="modus" value="concept" checked> Als concept klaarzetten (ik publiceer zelf in WordPress)</label><label><input type="radio" name="modus" value="publiceren"> Meteen publiceren</label><button>Goedkeuren</button></form><form method="post" action="/wijzigingen/${esc(w.id)}/afwijzen"><label>Waarom niet? (mag leeg) <input name="reden"></label><button>Niet doen</button></form>`;
+  if (w.status === 'gepubliceerd' && w.doel_id && !Object.values(w.velden).some((v) => v.oud === null)) knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/terugzetten"><button>Terugzetten naar de oude tekst</button></form>`;
+  if (w.status === 'mislukt') knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/opnieuw"><button>Opnieuw proberen</button></form>`;
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${w.melding ? `<p role="status">${esc(w.melding)}</p>` : ''}<p>Status: ${esc(statusTekst(w.status))}. Reden: ${esc(w.reden)}</p>${velden}${knoppen}<p><a href="/wijzigingen">Terug naar de lijst</a></p>`;
 }
 
 function bevestigMelding() {

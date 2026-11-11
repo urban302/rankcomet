@@ -9,6 +9,7 @@ Gebaseerd op [OpenSEO](https://github.com/every-app/open-seo) (MIT), commit 1523
 |---|---|
 | `rankcomet-core/` | De app: accounts, pakketten, Stripe (testmodus), NL-UI, EU-config. Node, `node:sqlite` en `pg`. |
 | `vendor-openseo/` | Bewaarde OpenSEO-code voor zoekwoordonderzoek. Alleen bron, draait nog niet. Zie `vendor-openseo/LEESMIJ.md`. |
+| `wordpress-plugin/` | De Rankcomet-plugin voor WordPress en WooCommerce (PHP). Zie `wordpress-plugin/LEESMIJ.md`. |
 | `docs/` | Context, spec, keuzes van Erwin, overzichten en testrapporten per ronde. |
 
 ## Tests draaien

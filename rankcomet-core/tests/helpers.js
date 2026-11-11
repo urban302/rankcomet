@@ -5,6 +5,8 @@ import * as acc from '../src/accounts.js';
 import * as sites from '../src/sites.js';
 import { maakOphaler } from '../src/ophalen.js';
 import { STANDAARD_GRENZEN } from '../src/grens.js';
+import { handtekening, PLUGIN_PAD } from '../src/wordpress.js';
+import { VELDEN } from '../src/velden.js';
 import { randomBytes } from 'node:crypto';
 
 export const TEST_ENV = {
@@ -46,15 +48,53 @@ export function nepInternet(paginas = {}) {
     paginas, verzoeken: [],
     ophalen: maakOphaler({
       lookup: async (host) => Object.keys(paginas).some((u) => new URL(u).hostname === host) ? [{ address: '93.184.216.34', family: 4 }] : [],
-      verbind: async ({ hostnaam, pad }) => {
+      verbind: async ({ hostnaam, pad, methode = 'GET', headers = {}, body = null }) => {
         internet.verzoeken.push(`https://${hostnaam}${pad}`);
-        const p = paginas[`https://${hostnaam}${pad}`];
+        const v = { hostnaam, pad, methode, headers, body };
+        const p = paginas[`https://${hostnaam}${pad.split('?')[0]}`] ?? (pad.startsWith(PLUGIN_PAD + '/') ? internet.doelHandler?.[hostnaam] : undefined);
         if (p === undefined) return { status: 404, headers: {}, body: Buffer.from('niet gevonden') };
-        return typeof p === 'function' ? p() : { status: 200, headers: {}, body: Buffer.from(p) };
+        return typeof p === 'function' ? p(v) : { status: 200, headers: {}, body: Buffer.from(p) };
       },
     }),
   };
   return internet;
+}
+
+// Nep-plugin: doet op de nep-site precies wat de WordPress-plugin doet (handtekening, nonce, witte lijst,
+// idempotentie), zodat de Rankcomet-kant van het protocol van begin tot eind getest wordt.
+export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast' } = {}) {
+  const toegepast = new Map(), nonces = new Set(), oproepen = [];
+  const antwoord = (status, o) => ({ status, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(o)) });
+  const handler = (v) => {
+    const pad = v.pad.split('?')[0];
+    oproepen.push(`${v.methode} ${pad}`);
+    const h = v.headers || {}, tijd = Number(h['x-rankcomet-tijd']), nonce = h['x-rankcomet-nonce'];
+    if (!sleutel || !h['x-rankcomet-handtekening'] || Math.abs(Date.now() / 1000 - tijd) > 300 || nonces.has(nonce)) return antwoord(401, { fout: 'handtekening' });
+    if (handtekening(sleutel, v.methode, pad, tijd, nonce, v.body || '') !== h['x-rankcomet-handtekening']) return antwoord(401, { fout: 'handtekening' });
+    nonces.add(nonce);
+    if (v.methode === 'GET' && pad.endsWith('/status')) return antwoord(200, { plugin: '0.1.0', woocommerce: true, seo });
+    const doel = pad.match(/\/doel\/([^/]+)\/([^/]+)$/);
+    if (v.methode === 'GET' && doel) { const d = doelen[`${doel[1]}:${doel[2]}`]; return d ? antwoord(200, { velden: d }) : antwoord(404, { fout: 'doel_onbekend' }); }
+    if (v.methode === 'POST' && pad.endsWith('/wijzigingen')) {
+      const w = JSON.parse(v.body);
+      if (toegepast.has(w.id)) return antwoord(200, { ...toegepast.get(w.id), al_eerder: true });
+      const toegestaan = VELDEN[w.doel_type];
+      if (!toegestaan) return antwoord(400, { fout: 'doel_type' });
+      const fout = Object.keys(w.velden).find((k) => !toegestaan.includes(k));
+      if (fout) return antwoord(400, { fout: 'veld_niet_toegestaan', veld: fout });
+      const doelId = w.doel_id ?? String(1000 + toegepast.size);
+      const k = `${w.doel_type}:${doelId}`;
+      doelen[k] = { ...(doelen[k] || {}), ...w.velden, _status: w.modus === 'publiceren' ? 'publish' : 'draft' };
+      const r = { toegepast: true, doel_id: doelId, al_eerder: false };
+      toegepast.set(w.id, r);
+      return antwoord(200, r);
+    }
+    return antwoord(404, { fout: 'onbekend' });
+  };
+  for (const pad of ['/status', '/wijzigingen']) internet.paginas[`https://${domein}${PLUGIN_PAD}${pad}`] = handler;
+  internet.doelHandler = internet.doelHandler || {};
+  internet.doelHandler[domein] = handler;
+  return { doelen, toegepast, oproepen, nonces };
 }
 
 // Site toevoegen én koppelen via de echte flow: de koppelcode staat op de nep-homepage.

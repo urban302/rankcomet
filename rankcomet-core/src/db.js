@@ -76,6 +76,34 @@ CREATE TABLE IF NOT EXISTS eenmalige_tokens (
   aangemaakt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS eenmalige_tokens_account_idx ON eenmalige_tokens(account_id);
+-- Stap 3: voorstellen voor wijzigingen op een klantsite. Niets gaat live zonder goedkeuring in de app.
+-- Per veld de nieuwe én de oude waarde, zodat terugzetten altijd kan. Het id is de idempotentiesleutel
+-- richting de plugin: dezelfde wijziging twee keer sturen verandert niets.
+CREATE TABLE IF NOT EXISTS wijzigingen (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  doel_type TEXT NOT NULL,
+  doel_id TEXT NULL,
+  modus TEXT NOT NULL,
+  reden TEXT NOT NULL,
+  status TEXT NOT NULL,
+  melding TEXT NULL,
+  terugzet_van TEXT NULL,
+  maand TEXT NOT NULL,
+  aangemaakt TEXT NOT NULL,
+  bijgewerkt TEXT NOT NULL,
+  gepubliceerd TEXT NULL
+);
+CREATE INDEX IF NOT EXISTS wijzigingen_site_status_idx ON wijzigingen(site_id, status);
+CREATE INDEX IF NOT EXISTS wijzigingen_account_idx ON wijzigingen(account_id);
+CREATE TABLE IF NOT EXISTS wijziging_velden (
+  wijziging_id TEXT NOT NULL REFERENCES wijzigingen(id),
+  veld TEXT NOT NULL,
+  nieuw TEXT NOT NULL,
+  oud TEXT NULL,
+  PRIMARY KEY (wijziging_id, veld)
+);
 CREATE INDEX IF NOT EXISTS artikelen_site_maand_idx ON artikelen(site_id, maand);
 CREATE INDEX IF NOT EXISTS sites_account_idx ON sites(account_id);
 CREATE INDEX IF NOT EXISTS sessies_account_idx ON sessies(account_id);
@@ -160,6 +188,8 @@ export async function migreer(db) {
   // Stap 2: koppelcode per site en het moment waarop het eigendom van het domein is bevestigd.
   await voegKolomToe(db, 'sites', 'koppelcode', 'TEXT NULL');
   await voegKolomToe(db, 'sites', 'eigendom_bevestigd', 'TEXT NULL');
+  // Stap 3: een geheim kan bij een site horen (de pluginsleutel).
+  await voegKolomToe(db, 'geheimen', 'site_id', 'TEXT NULL');
 }
 
 // Toevoegende migratie: een kolom erbij als die er nog niet is. Verwijdert nooit iets.
@@ -171,7 +201,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

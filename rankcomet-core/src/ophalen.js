@@ -51,11 +51,11 @@ export function isPriveAdres(ip) {
 
 // Standaardverbinding: één https-verzoek naar een vast adres. Geeft { status, headers, body (Buffer) }.
 // Volgt zelf geen doorverwijzingen; dat doet veiligOphalen, met controle per stap.
-function verbindHttps({ adres, hostnaam, pad, timeoutMs, maxBytes }) {
+function verbindHttps({ adres, hostnaam, pad, methode = 'GET', headers = {}, body = null, timeoutMs, maxBytes }) {
   return new Promise((ok, fout) => {
     const req = httpsRequest({
-      host: adres, servername: hostnaam, port: 443, path: pad, method: 'GET', timeout: timeoutMs,
-      headers: { host: hostnaam, accept: 'text/html', 'user-agent': 'Rankcomet-koppelcontrole/1 (+https://rankcomet.ai/over)' },
+      host: adres, servername: hostnaam, port: 443, path: pad, method: methode, timeout: timeoutMs,
+      headers: { accept: 'text/html, application/json', 'user-agent': 'Rankcomet/1 (+https://rankcomet.ai/over)', ...headers, host: hostnaam, ...(body ? { 'content-length': Buffer.byteLength(body) } : {}) },
     }, (res) => {
       const delen = []; let n = 0;
       res.on('data', (d) => {
@@ -67,7 +67,7 @@ function verbindHttps({ adres, hostnaam, pad, timeoutMs, maxBytes }) {
     });
     req.on('timeout', () => req.destroy(new Fout('Je site reageerde niet binnen 5 seconden.', 400)));
     req.on('error', (e) => fout(e instanceof Fout ? e : new Fout('We konden geen veilige verbinding maken met je site.', 400, { oorzaak: e.code })));
-    req.end();
+    req.end(body);
   });
 }
 
@@ -93,17 +93,19 @@ export function maakOphaler({ lookup = (h) => dnsLookup(h, { all: true }), verbi
   }
 
   // Haalt een pagina op. `domein` is het domein waar alles binnen moet blijven (ook na doorverwijzen).
-  return async function veiligOphalen(urlTekst, domein) {
+  // Met een methode anders dan GET (de plugin) volgen we geen doorverwijzingen: de handtekening hoort bij
+  // precies dit pad, en een POST die ergens anders terechtkomt willen we niet.
+  return async function veiligOphalen(urlTekst, domein, { methode = 'GET', headers = {}, body = null } = {}) {
     let huidig = urlTekst;
     for (let stap = 0; ; stap++) {
       const { url, host, adres } = await controleer(huidig, domein);
-      const r = await verbind({ adres, hostnaam: host, pad: url.pathname + url.search, timeoutMs: o.timeoutMs, maxBytes: o.maxBytes });
-      if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
+      const r = await verbind({ adres, hostnaam: host, pad: url.pathname + url.search, methode, headers, body, timeoutMs: o.timeoutMs, maxBytes: o.maxBytes });
+      if (methode === 'GET' && [301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
         if (stap >= o.maxDoorverwijzingen) throw new Fout('Je site verwijst te vaak door. We stoppen na 3 keer.', 400);
         huidig = new URL(r.headers.location, url).href;
         continue;
       }
-      return { status: r.status, url: url.href, body: r.body.toString('utf8') };
+      return { status: r.status, url: url.href, headers: r.headers, body: r.body.toString('utf8') };
     }
   };
 }

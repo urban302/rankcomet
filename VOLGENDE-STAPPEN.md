@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0, 1 en 2 klaar, 66/66 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 3 klaar, 79/79 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -37,7 +37,9 @@ Gedaan: koppelcode per site, controle van een metatag op de homepage via de veil
 - Fetchen van klantsites alleen via een veilige fetcher: alleen https, geen interne of privé-IP-adressen (SSRF), korte time-out, maximale grootte.
 - Test: account B kan de koppelcode van account A niet gebruiken.
 
-## Stap 3: WordPress-plugin en WooCommerce
+## Stap 3: WordPress-plugin en WooCommerce, KLAAR
+Gedaan: plugin in `wordpress-plugin/` met ondertekende REST-routes, voorstellen met goedkeuring in de app (`rankcomet-core/src/wijzigingen.js`), oude waarden per veld en terugzetten met één klik, witte lijst van velden aan beide kanten, idempotentie op het id, volumerem per site per maand. Aannames A41 tot A47. Nog te doen voor de bèta: de plugin op een echte WordPress-testsite met Yoast, Rank Math en WooCommerce draaien (A47).
+
 - Een kleine WordPress-plugin die met Rankcomet praat via een ondertekende verbinding (sleutel per site, versleuteld opgeslagen).
 - Alles wat Rankcomet aanpast, komt als concept of als voorstel klaar. Publiceren pas na akkoord in de Rankcomet-app.
 - Per wijziging terugzetten: bewaar de oude waarde, zodat de klant elke wijziging met één klik kan terugdraaien.
