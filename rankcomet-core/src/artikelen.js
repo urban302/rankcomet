@@ -27,12 +27,12 @@ export async function reserveerArtikel(db, account, siteId, nu = new Date(), { z
     const totaal = Number((await tx.query(`SELECT COUNT(*) AS n FROM artikelen WHERE account_id = $1 AND maand = $2 AND ${TELT}`, [account.id, maand])).rows[0].n);
     if (totaal >= pk.artikelen_per_maand) {
       const up = upgradeOptie(pk.id);
-      throw new Fout(`U heeft deze maand het maximum van ${pk.artikelen_per_maand} artikelen van uw pakket ${pk.naam} bereikt.` + (up ? ` Upgrade naar ${up.naam} voor meer artikelen.` : ''), 403, { upgrade: up ? up.id : null });
+      throw new Fout(`Je hebt deze maand het maximum van ${pk.artikelen_per_maand} artikelen van je pakket ${pk.naam} bereikt.` + (up ? ` Upgrade naar ${up.naam} voor meer artikelen.` : ''), 403, { upgrade: up ? up.id : null });
     }
     if (pk.artikelen_per_site_per_maand != null) {
       const perSite = Number((await tx.query(`SELECT COUNT(*) AS n FROM artikelen WHERE site_id = $1 AND maand = $2 AND ${TELT}`, [siteId, maand])).rows[0].n);
       if (perSite >= pk.artikelen_per_site_per_maand) {
-        throw new Fout(`Voor ${site.domein} is deze maand het maximum van ${pk.artikelen_per_site_per_maand} artikelen bereikt. In uw pakket ${pk.naam} geldt de limiet per site.`, 403, { upgrade: null });
+        throw new Fout(`Voor ${site.domein} is deze maand het maximum van ${pk.artikelen_per_site_per_maand} artikelen bereikt. In je pakket ${pk.naam} geldt de limiet per site.`, 403, { upgrade: null });
       }
     }
     // Temporem: niet alles op één dag (A49).

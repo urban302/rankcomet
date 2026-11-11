@@ -32,7 +32,7 @@ for (const [pakket, max] of [['solo', 1], ['pro', 3], ['bureau_proef', 5]]) {
     for (let i = 0; i < max; i++) await sites.voegSiteToe(db, a, { domein: `s${i}-${pakket.replace('_', '')}.test`, platform: 'wordpress' });
     const fout = await sites.voegSiteToe(db, a, { domein: `extra-${pakket.replace('_', '')}.test`, platform: 'wordpress' }).catch((e) => e);
     assert.equal(fout.status, 403);
-    assert.match(fout.message, /^Uw pakket .* staat maximaal \d+ sites? toe\./);
+    assert.match(fout.message, /^Je pakket .* staat maximaal \d+ sites? toe\./);
     if (pakket === 'bureau_proef') assert.equal(fout.upgrade, null); else assert.ok(fout.upgrade);
     assert.equal((await sites.lijstSites(db, a.id)).length, max);
   });
@@ -44,6 +44,6 @@ test('HTTP: tweede site bij Solo geweigerd met upgrade-link', async () => {
   const r = await post(app.basis, '/sites/nieuw', { domein: 'twee.test', taal: 'nl', land: 'NL', platform: 'wordpress' }, c);
   assert.equal(r.status, 403);
   const html = await r.text();
-  assert.match(html, /Uw pakket Solo staat maximaal 1 site toe\. Upgrade naar Pro/);
+  assert.match(html, /Je pakket Solo staat maximaal 1 site toe\. Upgrade naar Pro/);
   assert.match(html, /href="\/pakketten"/);
 });
