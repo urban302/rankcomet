@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 6 klaar en de teksten voor de Search Console-aanvraag staan klaar, 99/99 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 7 klaar en de teksten voor de Search Console-aanvraag staan klaar, 105/105 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -86,11 +86,8 @@ Gedaan: dashboard met "Wacht op jou" (Goedkeuren en Niet doen per voorstel), dez
 ### Stap 6: zoekwoorden per site, KLAAR
 Gedaan: DataForSEO-client in gewoon JavaScript (`rankcomet-core/src/dataforseo.js`, overgezet uit `vendor-openseo/`), zoekwoordonderzoek met volume, moeilijkheid en intentie, bewaren per site, volgen met de pakketlimiet (A7: 100), eigen zoekwoorden met Google Ads-volume, daggrens op onderzoeken, pagina `/sites/<id>/zoekwoorden` met de link naar "Artikel laten schrijven". Aannames A57 tot A59. Nog nodig: een DataForSEO-login (RC_DATAFORSEO_LOGIN en RC_DATAFORSEO_WACHTWOORD) om echt te draaien en de kosten per onderzoek te meten.
 
-### Stap 7: rank tracking
-- Dagelijks de positie van elk gevolgd zoekwoord ophalen via DataForSEO SERP (Google, NL of BE, nl), met de URL die rankt.
-- Opslaan per dag; op de zoekwoordenpagina en het dashboard de positie en het verschil met vorige week tonen.
-- Een vaste planning (één keer per dag per site) met een harde grens op het aantal aanroepen; een gemiste dag inhalen zonder dubbel te betalen.
-- Test: account A ziet niets van account B.
+### Stap 7: rank tracking, KLAAR
+Gedaan: dagelijkse positie per gevolgd zoekwoord via DataForSEO SERP (`rankcomet-core/src/posities.js`), met de URL die rankt; claim per zoekwoord per dag zodat een herhaling, "Nu controleren" of gelijktijdige runs nooit dubbel betalen; planning elk uur in `src/server.js`; positie en verschil met een week geleden op de zoekwoordenpagina, kaart "Posities in Google" op het dashboard. Aannames A60 tot A62.
 
 ### Stap 8: Search Console-koppeling
 - OAuth met Google (scope `webmasters.readonly`), tokens versleuteld met AES-GCM (`src/geheimen.js`), property kiezen.

@@ -14,6 +14,7 @@ import { verificatieMail, herstelMail } from './mail.js';
 import * as wijz from './wijzigingen.js';
 import { schrijfArtikel } from './pijplijn.js';
 import * as zw from './zoekwoorden.js';
+import * as pos from './posities.js';
 import { lijstArtikelen, artikelenOverzicht, huidigeMaand } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
@@ -172,10 +173,10 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger
       return stuur(res, ok ? 200 : 503, pagina('E-mailadres bevestigen', ok ? '<p>We hebben je een nieuwe mail gestuurd. Klik op de link in die mail.</p>' : '<p role="alert">Het versturen van de mail lukte niet. Probeer het later opnieuw.</p>', account));
     }
     if (m === 'GET' && pad === '/dashboard') {
-      const [lijst, alles, overzicht] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account)]);
+      const [lijst, alles, overzicht, posities] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account), pos.samenvatting(db, account.id)]);
       const pk = laadPakketten().pakketten[account.pakket];
       const melding = url.searchParams.get('m');
-      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, melding }), account));
+      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, posities, melding }), account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
     if (m === 'GET' && pad.startsWith('/api/sites/')) {
@@ -236,12 +237,12 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger
       }
     }
     // Stap 6: zoekwoorden per site: onderzoeken, volgen, zelf toevoegen.
-    const zm = pad.match(/^\/sites\/([^/]+)\/zoekwoorden(?:\/(onderzoek|toevoegen|volgen|ontvolgen))?$/);
+    const zm = pad.match(/^\/sites\/([^/]+)\/zoekwoorden(?:\/(onderzoek|toevoegen|volgen|ontvolgen|controleren))?$/);
     if (zm) {
       const [, siteId, actie] = zm;
       const site = await sites.haalSite(db, account.id, siteId);
       if (!site) return stuur(res, 404, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account));
-      const toon = async (status = 200, fout = null) => stuur(res, status, pagina(`Zoekwoorden voor ${site.domein}`, zoekwoordenPagina(site, await zw.lijst(db, account.id, siteId), laadPakketten().pakketten[account.pakket], url.searchParams.get('m'), fout), account));
+      const toon = async (status = 200, fout = null) => stuur(res, status, pagina(`Zoekwoorden voor ${site.domein}`, zoekwoordenPagina(site, await zw.lijst(db, account.id, siteId), laadPakketten().pakketten[account.pakket], url.searchParams.get('m'), fout, await pos.overzicht(db, account.id, siteId)), account));
       if (m === 'GET' && !actie) return toon();
       if (m === 'POST' && actie) {
         const f = formulier(await leesBody(req));
@@ -255,6 +256,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger
           if (actie === 'onderzoek') { const r = await zw.onderzoek(db, ctx, account, siteId, { startwoord: f.startwoord }); melding = `${r.aantal} ideeën gevonden bij "${f.startwoord}".`; }
           else if (actie === 'toevoegen') { await zw.voegToe(db, ctx, account, siteId, { zoekwoord: f.zoekwoord }); melding = `"${f.zoekwoord}" toegevoegd en gevolgd.`; }
           else if (actie === 'volgen') { await zw.volg(db, account, siteId, f.id); melding = 'Je volgt dit zoekwoord nu.'; }
+          else if (actie === 'controleren') { const r = await pos.controleer(db, ctx, account, siteId); melding = r.gedaan ? `${r.gedaan} ${r.gedaan === 1 ? 'positie' : 'posities'} gecontroleerd.` : r.overgeslagen ? 'De posities van vandaag waren al gecontroleerd. Morgen kijken we opnieuw.' : 'Je volgt nog geen zoekwoorden.'; }
           else { await zw.ontvolg(db, account, siteId, f.id); melding = 'Je volgt dit zoekwoord niet meer.'; }
           return naar(res, `/sites/${siteId}/zoekwoorden?m=${encodeURIComponent(melding)}`);
         } catch (e) {
@@ -374,7 +376,7 @@ function pluginPagina(site, info) {
 const DOEL_TEKST = { post: 'Bericht', pagina: 'Pagina', product: 'Product', productcategorie: 'Productcategorie' };
 
 // Het dashboard (stap 5): bovenaan wat op de klant wacht, daarna deze maand, wat live staat, wat er over is, de sites.
-function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, melding }) {
+function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities = [], melding }) {
   const maand = huidigeMaand();
   const open = wijzigingen.filter((w) => w.status === 'voorstel');
   const dezeMaand = wijzigingen.filter((w) => w.maand === maand);
@@ -400,9 +402,11 @@ function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, melding 
 
   const kaartOver = `<section class="kaart"><h2>Artikelen over</h2><p>Je pakket ${esc(pk.naam)}: ${mv(pk.artikelen_per_maand, 'artikel', 'artikelen')} per maand${pk.artikelen_per_site_per_maand ? `, ${pk.artikelen_per_site_per_maand} per site` : ''}, hooguit ${pk.artikelen_per_site_per_dag} per site per dag.</p>${overzicht.sites.length ? `<ul class="lijst">${overzicht.sites.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${mv(s.dezeMaand, 'artikel', 'artikelen')} deze maand, nog ${s.over} over${s.over ? `, vandaag nog ${s.vandaagNog}` : ''}.</li>`).join('')}</ul>` : ''}</section>`;
 
+  const kaartPosities = `<section class="kaart"><h2>Posities in Google</h2>${posities.length ? `<ul class="lijst">${posities.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${s.gemeten ? `${s.top10} van ${s.gevolgd} ${s.gevolgd === 1 ? 'zoekwoord' : 'zoekwoorden'} in de top 10${s.beter || s.slechter ? `, sinds vorige week ${s.beter} omhoog en ${s.slechter} omlaag` : ''}` : `${s.gevolgd} ${s.gevolgd === 1 ? 'zoekwoord' : 'zoekwoorden'} gevolgd, nog niet gemeten`}. <a href="/sites/${esc(s.id)}/zoekwoorden">Bekijk</a></li>`).join('')}</ul>` : '<p class="stil">Volg zoekwoorden bij een site, dan zie je hier elke dag waar je staat.</p>'}</section>`;
+
   const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
 
-  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartLive}${kaartOver}${kaartSites}`;
+  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartPosities}${kaartLive}${kaartOver}${kaartSites}`;
 }
 const STATUS_TEKST = { voorstel: 'wacht op jou', goedgekeurd: 'wordt verwerkt', gepubliceerd: 'staat op je site', afgewezen: 'niet gedaan', teruggezet: 'teruggezet', mislukt: 'niet gelukt' };
 const doelTekst = (w) => `${DOEL_TEKST[w.doel_type] || w.doel_type}${w.doel_id ? ` ${w.doel_id}` : ' (nieuw)'}`;
@@ -430,12 +434,19 @@ function artikelForm(site, artikelen, zoekwoord = '') {
 }
 
 const INTENTIE_TEKST = { informatie: 'wil iets weten', navigatie: 'zoekt een site', commercieel: 'vergelijkt', kopen: 'wil kopen', onbekend: '' };
-function zoekwoordenPagina(site, lijst, pk, melding, fout) {
+function positieTekst(p) {
+  if (!p || p.positie == null) return p && p.dag ? 'niet in de top 20' : 'nog niet gemeten';
+  const v = p.verschil == null ? '' : p.verschil > 0 ? ` (${p.verschil} omhoog)` : p.verschil < 0 ? ` (${-p.verschil} omlaag)` : ' (gelijk)';
+  return `positie ${p.positie}${v}`;
+}
+
+function zoekwoordenPagina(site, lijst, pk, melding, fout, posities = []) {
+  const perId = Object.fromEntries(posities.map((p) => [p.id, p]));
   const gevolgd = lijst.filter((z) => z.gevolgd), ideeen = lijst.filter((z) => !z.gevolgd);
   const rij = (z, knop) => `<li><span class="sitenaam">${esc(z.zoekwoord)}</span> <span class="stil">· ${z.volume != null ? `${z.volume} per maand` : 'volume onbekend'}${z.moeilijkheid != null ? ` · moeilijkheid ${z.moeilijkheid}` : ''}${INTENTIE_TEKST[z.intentie] ? ` · ${INTENTIE_TEKST[z.intentie]}` : ''}</span> ${knop}</li>`;
   const volgKnop = (z) => `<form method="post" action="/sites/${esc(site.id)}/zoekwoorden/volgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Volgen</button></form>`;
-  const ontvolgKnop = (z) => `<a href="/sites/${esc(site.id)}/artikel?zoekwoord=${encodeURIComponent(z.zoekwoord)}">Artikel laten schrijven</a> <form method="post" action="/sites/${esc(site.id)}/zoekwoorden/ontvolgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Niet meer volgen</button></form>`;
-  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}<section class="kaart"><h2>Zoekwoorden die je volgt (${gevolgd.length} van ${pk.zoekwoorden_volgen})</h2>${gevolgd.length ? `<ul class="lijst">${gevolgd.map((z) => rij(z, ontvolgKnop(z))).join('')}</ul>` : '<p class="stil">Nog geen. Doe een onderzoek of voeg zelf een zoekwoord toe.</p>'}</section><section class="kaart"><h2>Onderzoek doen</h2><p>Vul een woord in waar je op gevonden wilt worden. Rankcomet zoekt ideeën met het aantal zoekopdrachten per maand in ${esc(site.land === 'BE' ? 'België' : 'Nederland')}. Hooguit ${pk.onderzoeken_per_site_per_dag} onderzoeken per dag.</p><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/onderzoek"><label>Startwoord <input name="startwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie"></label><button>Zoek ideeën</button></form><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/toevoegen"><label>Of voeg zelf een zoekwoord toe <input name="zoekwoord" required minlength="2" maxlength="100"></label><button class="rustig">Toevoegen en volgen</button></form></section><section class="kaart"><h2>Ideeën (${ideeen.length})</h2>${ideeen.length ? `<ul class="lijst">${ideeen.map((z) => rij(z, volgKnop(z))).join('')}</ul>` : '<p class="stil">Nog geen ideeën.</p>'}</section>`;
+  const ontvolgKnop = (z) => `<span class="positie">${esc(positieTekst(perId[z.id]))}</span>${perId[z.id]?.url ? ` <small><a href="${esc(perId[z.id].url)}">pagina</a></small>` : ''} <a href="/sites/${esc(site.id)}/artikel?zoekwoord=${encodeURIComponent(z.zoekwoord)}">Artikel laten schrijven</a> <form method="post" action="/sites/${esc(site.id)}/zoekwoorden/ontvolgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Niet meer volgen</button></form>`;
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}<section class="kaart"><h2>Zoekwoorden die je volgt (${gevolgd.length} van ${pk.zoekwoorden_volgen})</h2>${gevolgd.length ? `<p class="stil">Elke dag kijkt Rankcomet waar je site staat in Google (${esc(site.land === 'BE' ? 'België' : 'Nederland')}, de eerste 20 resultaten). Tussen haakjes het verschil met een week geleden.</p><ul class="lijst">${gevolgd.map((z) => rij(z, ontvolgKnop(z))).join('')}</ul><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/controleren"><button class="rustig">Nu controleren</button></form>` : '<p class="stil">Nog geen. Doe een onderzoek of voeg zelf een zoekwoord toe.</p>'}</section><section class="kaart"><h2>Onderzoek doen</h2><p>Vul een woord in waar je op gevonden wilt worden. Rankcomet zoekt ideeën met het aantal zoekopdrachten per maand in ${esc(site.land === 'BE' ? 'België' : 'Nederland')}. Hooguit ${pk.onderzoeken_per_site_per_dag} onderzoeken per dag.</p><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/onderzoek"><label>Startwoord <input name="startwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie"></label><button>Zoek ideeën</button></form><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/toevoegen"><label>Of voeg zelf een zoekwoord toe <input name="zoekwoord" required minlength="2" maxlength="100"></label><button class="rustig">Toevoegen en volgen</button></form></section><section class="kaart"><h2>Ideeën (${ideeen.length})</h2>${ideeen.length ? `<ul class="lijst">${ideeen.map((z) => rij(z, volgKnop(z))).join('')}</ul>` : '<p class="stil">Nog geen ideeën.</p>'}</section>`;
 }
 
 function bevestigMelding() {

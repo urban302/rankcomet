@@ -125,6 +125,22 @@ CREATE TABLE IF NOT EXISTS onderzoeken (
   aangemaakt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS onderzoeken_site_dag_idx ON onderzoeken(site_id, dag);
+-- Stap 7: posities per gevolgd zoekwoord per dag. UNIQUE (zoekwoord_id, dag) is de claim die dubbel betalen voorkomt.
+CREATE TABLE IF NOT EXISTS posities (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  zoekwoord_id TEXT NOT NULL REFERENCES zoekwoorden(id),
+  dag TEXT NOT NULL,
+  status TEXT NOT NULL,
+  positie INTEGER NULL,
+  url TEXT NULL,
+  kosten_usd DOUBLE PRECISION NOT NULL,
+  aangemaakt TEXT NOT NULL,
+  bijgewerkt TEXT NULL,
+  UNIQUE (zoekwoord_id, dag)
+);
+CREATE INDEX IF NOT EXISTS posities_site_dag_idx ON posities(site_id, dag);
 -- Stap 4: klantinformatie per site, de basis voor elk artikel en voor de kwaliteitspoort.
 CREATE TABLE IF NOT EXISTS siteprofielen (
   site_id TEXT PRIMARY KEY REFERENCES sites(id),
@@ -251,7 +267,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }
