@@ -19,7 +19,10 @@ import { laadSleutel } from './geheimen.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Eén stylesheet, zelf gehost (public/stijl.css). Geen inline stijl of script: de CSP staat dat niet toe.
-const STIJL = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'stijl.css'), 'utf8');
+const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const STIJL = readFileSync(path.join(PUBLIC, 'stijl.css'), 'utf8');
+// Privacyverklaring (concept) als html-fragment, openbaar op /privacy. Google eist die URL voor de Search Console-koppeling.
+const PRIVACY = readFileSync(path.join(PUBLIC, 'privacy.html'), 'utf8');
 export const CSP = "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
 function pagina(titel, inhoud, account) {
@@ -27,7 +30,7 @@ function pagina(titel, inhoud, account) {
   const nav = account
     ? `<nav><a href="/dashboard">Dashboard</a> <a href="/wijzigingen">Wacht op jou</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen"><button class="rustig">Uitloggen</button></form></nav>`
     : `<nav><a href="/inloggen">Inloggen</a> <a href="/registreren">Account aanmaken</a> <a href="/over">Over</a></nav>`;
-  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titel)} · ${esc(m.merk)}</title><link rel="stylesheet" href="/stijl.css"></head><body><header class="kop"><div class="binnen"><a class="merk" href="/">${esc(m.merk)}</a>${nav}</div></header><main><h1>${esc(titel)}</h1>${inhoud}</main><footer><small>${esc(m.merk)} · ${esc(m.domein)} · <a href="/over">Over en licenties</a></small></footer></body></html>`;
+  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titel)} · ${esc(m.merk)}</title><link rel="stylesheet" href="/stijl.css"></head><body><header class="kop"><div class="binnen"><a class="merk" href="/">${esc(m.merk)}</a>${nav}</div></header><main><h1>${esc(titel)}</h1>${inhoud}</main><footer><small>${esc(m.merk)} · ${esc(m.domein)} · <a href="/over">Over en licenties</a> · <a href="/privacy">Privacy</a></small></footer></body></html>`;
 }
 
 function leesBody(req, max = 1024 * 1024) {
@@ -87,6 +90,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
     if (m === 'GET' && pad === '/stijl.css') { res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); return res.end(STIJL); }
     if (m === 'GET' && pad === '/') return naar(res, account ? '/dashboard' : '/inloggen');
     if (m === 'GET' && pad === '/over') return stuur(res, 200, pagina('Over Rankcomet', `<p>Rankcomet.ai helpt u met SEO-content voor WordPress en WooCommerce.</p><h2>Licenties</h2><p>Rankcomet is gebouwd op <a href="https://github.com/every-app/open-seo">OpenSEO</a>, uitgegeven onder de MIT-licentie. Copyright (c) 2026 Ben Senescu. De volledige licentietekst staat in het bestand LICENSE in de broncode.</p>`, account));
+    if (m === 'GET' && pad === '/privacy') return stuur(res, 200, pagina('Privacyverklaring', PRIVACY, account));
     if (m === 'GET' && pad === '/inloggen') return stuur(res, 200, pagina('Inloggen', inlogForm('/inloggen', 'Inloggen', url.searchParams.get('fout'))));
     if (m === 'GET' && pad === '/registreren') return stuur(res, 200, pagina('Account aanmaken', inlogForm('/registreren', 'Account aanmaken', url.searchParams.get('fout'))));
     if (m === 'POST' && (pad === '/inloggen' || pad === '/registreren')) {
