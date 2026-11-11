@@ -207,6 +207,17 @@ CREATE TABLE IF NOT EXISTS opfrissingen (
   bijgewerkt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS opfrissingen_site_dag_idx ON opfrissingen(site_id, dag);
+-- Stap 10: verstuurde maandrapporten. UNIQUE (account_id, maand) is de claim tegen dubbele mails.
+CREATE TABLE IF NOT EXISTS rapporten (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  maand TEXT NOT NULL,
+  status TEXT NOT NULL,
+  verstuurd TEXT NULL,
+  aangemaakt TEXT NOT NULL,
+  bijgewerkt TEXT NULL,
+  UNIQUE (account_id, maand)
+);
 -- Stap 4: klantinformatie per site, de basis voor elk artikel en voor de kwaliteitspoort.
 CREATE TABLE IF NOT EXISTS siteprofielen (
   site_id TEXT PRIMARY KEY REFERENCES sites(id),
@@ -333,7 +344,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['opfrissingen', 'refresh_instellingen', 'gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['rapporten', 'opfrissingen', 'refresh_instellingen', 'gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

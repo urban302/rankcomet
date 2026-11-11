@@ -17,6 +17,7 @@ import * as zw from './zoekwoorden.js';
 import * as pos from './posities.js';
 import * as gsc from './gsc.js';
 import * as opf from './opfrissen.js';
+import * as rap from './rapport.js';
 import { lijstArtikelen, artikelenOverzicht, huidigeMaand } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
@@ -32,7 +33,7 @@ export const CSP = "default-src 'none'; style-src 'self'; img-src 'self'; form-a
 function pagina(titel, inhoud, account) {
   const m = laadMerk();
   const nav = account
-    ? `<nav><a href="/dashboard">Dashboard</a> <a href="/wijzigingen">Wacht op jou</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen"><button class="rustig">Uitloggen</button></form></nav>`
+    ? `<nav><a href="/dashboard">Dashboard</a> <a href="/wijzigingen">Wacht op jou</a> <a href="/rapport">Maandrapport</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen"><button class="rustig">Uitloggen</button></form></nav>`
     : `<nav><a href="/inloggen">Inloggen</a> <a href="/registreren">Account aanmaken</a> <a href="/over">Over</a></nav>`;
   return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titel)} · ${esc(m.merk)}</title><link rel="stylesheet" href="/stijl.css"></head><body><header class="kop"><div class="binnen"><a class="merk" href="/">${esc(m.merk)}</a>${nav}</div></header><main><h1>${esc(titel)}</h1>${inhoud}</main><footer><small>${esc(m.merk)} · ${esc(m.domein)} · <a href="/over">Over en licenties</a> · <a href="/privacy">Privacy</a></small></footer></body></html>`;
 }
@@ -274,6 +275,16 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
           return toon(e.status, e.message);
         }
       }
+    }
+    // Stap 10: maandrapport.
+    if (m === 'GET' && pad === '/rapport') {
+      const lijst = await rap.maanden(db, account.id);
+      return stuur(res, 200, pagina('Maandrapport', `<section class="kaart"><p>Elke maand zet Rankcomet op een rij wat het deed en wat het opleverde. Op de eerste van de maand krijg je het rapport ook per mail.</p><ul class="lijst">${lijst.map((mnd) => `<li><a href="/rapport/${esc(mnd)}">${esc(rap.maandNaam(mnd))}</a></li>`).join('')}</ul></section>`, account));
+    }
+    const rm = pad.match(/^\/rapport\/(\d{4}-\d{2})$/);
+    if (m === 'GET' && rm) {
+      if (!(await rap.maanden(db, account.id)).includes(rm[1])) return stuur(res, 404, pagina('Niet gevonden', '<p>Voor deze maand is er geen rapport.</p>', account));
+      return stuur(res, 200, pagina(`Rapport ${rap.maandNaam(rm[1])}`, rapportPagina(await rap.maandrapport(db, account.id, rm[1])), account));
     }
     // Stap 9: contentrefresh: verouderde pagina's en opfrisvoorstellen.
     const om = pad.match(/^\/sites\/([^/]+)\/opfrissen(?:\/(instellingen|voorstel))?$/);
@@ -534,6 +545,16 @@ function opfrissenPagina(site, lijst, d, effect, melding, fout, extra = '') {
   const STATUS = { bezig: 'bezig', voorstel: 'voorstel gemaakt', mislukt: 'niet gelukt' };
   const rij = (e) => `<li><span class="sitenaam">${esc(e.url.replace(/^https?:\/\/[^/]+/, '') || '/')}</span> <span class="stil">· ${esc(e.aangemaakt.slice(0, 10))} · ${esc(e.voorstel_status === 'gepubliceerd' ? 'staat op je site' : e.voorstel_status === 'voorstel' ? 'wacht op jou' : e.voorstel_status === 'afgewezen' ? 'niet gedaan' : STATUS[e.status] || e.status)}</span>${e.voorstel_status === 'gepubliceerd' ? `<br>${e.positie_voor != null ? `positie ${e.positie_voor} toen, ${e.positieNu != null ? e.positieNu : 'niet in de top 20'} nu` : ''}${e.klikken_voor != null ? `${e.positie_voor != null ? ' · ' : ''}${e.klikken_voor} klikken toen, ${e.klikkenNu != null ? e.klikkenNu : 'nog geen cijfers'} nu` : ''}` : ''}${e.wijziging_id ? ` · <a href="/wijzigingen/${esc(e.wijziging_id)}">bekijk</a>` : ''}${e.status === 'mislukt' && e.melding ? `<br><small>${esc(e.melding)}</small>` : ''}</li>`;
   return `${kop}<section class="kaart"><h2>Pagina's die een opfrisbeurt verdienen (${lijst.length})</h2><p class="stil">Pagina's ouder dan ${d.min_leeftijd_dagen} dagen die minstens ${d.positie_daling} plaatsen zakten in Google of ${d.klik_daling_pct}% klikken verloren. Rankcomet maakt een voorstel; jij keurt het goed voor het op je site komt.</p>${lijst.length ? `<ul class="lijst">${lijst.map(kandidaat).join('')}</ul>` : '<p class="stil">Niets. Volg je zoekwoorden en koppel Search Console, dan ziet Rankcomet welke pagina\'s terrein verliezen.</p>'}</section><section class="kaart"><h2>Effect van eerdere opfrisbeurten</h2>${effect.length ? `<ul class="lijst">${effect.map(rij).join('')}</ul>` : '<p class="stil">Nog geen.</p>'}</section><section class="kaart"><h2>Drempels</h2><form method="post" action="/sites/${esc(site.id)}/opfrissen/instellingen"><label>Minimale leeftijd in dagen <input name="min_leeftijd_dagen" inputmode="numeric" value="${d.min_leeftijd_dagen}"><small>30 tot 1095</small></label><label>Zakken in Google (plaatsen) <input name="positie_daling" inputmode="numeric" value="${d.positie_daling}"><small>1 tot 50</small></label><label>Minder klikken (procent) <input name="klik_daling_pct" inputmode="numeric" value="${d.klik_daling_pct}"><small>10 tot 90</small></label><button class="rustig">Opslaan</button></form></section>`;
+}
+
+function rapportPagina(r) {
+  const mv = (n, een, meer) => `${n} ${n === 1 ? een : meer}`;
+  const cijfer = (n, tekst) => `<div><div class="cijfer">${n}<small>${esc(tekst)}</small></div></div>`;
+  const sites = r.sites.map((s) => {
+    const p = s.posities, sc = s.searchConsole;
+    return `<li><span class="sitenaam">${esc(s.domein)}</span><br>${mv(s.artikelen, 'artikel geschreven', 'artikelen geschreven')}, ${mv(s.gepubliceerd, 'wijziging', 'wijzigingen')} op de site gezet.${p.gevolgd ? `<br>Posities: ${p.gemeten ? `${p.top10Eind} van ${p.gevolgd} zoekwoorden in de top 10 aan het einde van de maand${p.top10Begin !== p.top10Eind ? ` (begin van de maand: ${p.top10Begin})` : ''}; ${p.beter} omhoog en ${p.slechter} omlaag.` : `${mv(p.gevolgd, 'zoekwoord', 'zoekwoorden')} gevolgd, nog niet gemeten.`}` : ''}${sc ? `<br>Google Search Console: ${sc.klikken} klikken en ${sc.vertoningen} vertoningen in de 28 dagen tot ${esc(sc.periodeEind)}${sc.klikkenVorige != null ? ` (de periode ervoor: ${sc.klikkenVorige} klikken)` : ''}.` : ''}</li>`;
+  }).join('');
+  return `<section class="kaart"><h2>Wat Rankcomet deed</h2><div class="kaarten">${cijfer(r.artikelen, r.artikelen === 1 ? 'artikel geschreven' : 'artikelen geschreven')}${cijfer(r.voorstellen, r.voorstellen === 1 ? 'voorstel gedaan' : 'voorstellen gedaan')}${cijfer(r.gepubliceerd, 'op je site gezet')}${cijfer(r.afgewezen, 'door jou afgewezen')}${cijfer(r.opfrissingen, r.opfrissingen === 1 ? 'pagina opgefrist' : 'pagina\'s opgefrist')}</div>${r.teruggezet ? `<p class="stil">${mv(r.teruggezet, 'wijziging', 'wijzigingen')} door jou teruggezet.</p>` : ''}${r.openNu ? `<p role="status">Er ${r.openNu === 1 ? 'wacht nog 1 voorstel' : `wachten nog ${r.openNu} voorstellen`} op je akkoord. <a href="/wijzigingen">Bekijk</a></p>` : ''}</section><section class="kaart"><h2>Per site</h2>${sites ? `<ul class="lijst">${sites}</ul>` : '<p class="stil">Nog geen gekoppelde sites in deze maand.</p>'}</section><p><a href="/rapport">Andere maanden</a></p>`;
 }
 
 function bevestigMelding() {
