@@ -62,7 +62,8 @@ export async function lijst(db, accountId, { siteId = null, status = null } = {}
   const voorwaarden = ['w.account_id = $1'], params = [accountId];
   if (siteId) { params.push(siteId); voorwaarden.push(`w.site_id = $${params.length}`); }
   if (status) { params.push(status); voorwaarden.push(`w.status = $${params.length}`); }
-  return (await db.query(`SELECT w.*, s.domein FROM wijzigingen w JOIN sites s ON s.id = w.site_id WHERE ${voorwaarden.join(' AND ')} ORDER BY w.aangemaakt DESC`, params)).rows;
+  // Met de voorgestelde titel erbij (voor het dashboard), zonder de hele velden op te halen.
+  return (await db.query(`SELECT w.*, s.domein, (SELECT v.nieuw FROM wijziging_velden v WHERE v.wijziging_id = w.id AND v.veld = 'titel') AS titel, (SELECT COUNT(*) FROM wijziging_velden v WHERE v.wijziging_id = w.id AND v.oud IS NULL) AS zonder_oud FROM wijzigingen w JOIN sites s ON s.id = w.site_id WHERE ${voorwaarden.join(' AND ')} ORDER BY w.aangemaakt DESC`, params)).rows;
 }
 
 // Legt een voorstel vast. Haalt eerst de huidige waarden op bij de plugin (de 'oude' waarden), zodat

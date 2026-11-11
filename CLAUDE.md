@@ -1,6 +1,6 @@
 # Rankcomet: vaste regels voor Claude Code
 
-Lees bij de start ook `VOLGENDE-STAPPEN.md`, `docs/CONTEXT-RANKCOMET.md`, `docs/R2-OVERZICHT.md` en `rankcomet-core/installatie.md` (env-namen en aannames A1 tot A53).
+Lees bij de start ook `VOLGENDE-STAPPEN.md`, `docs/CONTEXT-RANKCOMET.md`, `docs/R2-OVERZICHT.md` en `rankcomet-core/installatie.md` (env-namen en aannames A1 tot A56).
 
 ## Wat dit is
 Rankcomet.ai is een AI-SEO-agent voor ondernemers in Nederland en België. Hij koppelt met WordPress (en WooCommerce), stelt verbeteringen en artikelen voor en zet alles klaar als concept. De ondernemer keurt goed, pas dan gaat iets live.
@@ -35,7 +35,7 @@ De repo is een fork van OpenSEO (MIT). Daarnaast staat onze eigen kern in `rankc
 ```
 cd rankcomet-core
 npm ci --offline
-env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 88/88 groen
+env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 92/92 groen
 RC_DB=pg PG_TEST_HOST=... PG_TEST_USER=... PG_TEST_DB=... PG_TEST_PWFILE=... npm run test:pg
 ```
 - Tests moeten groen blijven op SQLite. Raakt je wijziging de database, draai dan ook de PG-tests (of meld dat er geen test-PG was).
