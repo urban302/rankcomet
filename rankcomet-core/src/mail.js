@@ -39,3 +39,14 @@ export function rapportMail(r) {
     tekst: `Hoi,\n\nDit deed ${laadMerk().merk} in ${r.naam}:\n\n${regels.map((x) => `- ${x}`).join('\n')}${open}\n\nHet hele rapport: ${link}\n\n${groet()}\n`,
   };
 }
+
+// Wachtrij (stap 11): bericht als een taak klaar is of niet is gelukt. Alleen domein en onderwerp, geen teksten.
+const taakNaam = (t) => t.soort === 'opfrissen' ? `het opfrisvoorstel voor ${t.onderwerp}` : `het artikel over "${t.onderwerp}"`;
+export function taakKlaarMail(t) {
+  const link = `${laadMerk().basis_url}/wijzigingen/${t.wijzigingId}`;
+  return { onderwerp: `Klaar: ${t.soort === 'opfrissen' ? 'opfrisvoorstel' : 'artikel'} voor ${t.domein}`, tekst: `Hoi,\n\n${taakNaam(t)[0].toUpperCase()}${taakNaam(t).slice(1)} voor ${t.domein} staat klaar. Er gaat niets naar je site voordat jij het goedkeurt.\n\nBekijk het voorstel: ${link}\n\n${groet()}\n` };
+}
+export function taakMisluktMail(t) {
+  const link = `${laadMerk().basis_url}/sites/${t.siteId}/${t.soort === 'opfrissen' ? 'opfrissen' : 'artikel'}`;
+  return { onderwerp: `Niet gelukt: ${t.soort === 'opfrissen' ? 'opfrisvoorstel' : 'artikel'} voor ${t.domein}`, tekst: `Hoi,\n\n${taakNaam(t)[0].toUpperCase()}${taakNaam(t).slice(1)} voor ${t.domein} is niet gelukt.\n\n${t.melding}\n\nJe kunt het opnieuw proberen: ${link}\n\n${groet()}\n` };
+}

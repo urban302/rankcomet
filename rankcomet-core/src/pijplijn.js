@@ -31,16 +31,31 @@ export const knip = (v, max) => (typeof v === 'string' ? v : '').slice(0, max);
 const tekst = knip;
 export const paginaLijst = (paginas) => paginas.length ? paginas.map((p) => `- ${p.titel} | ${p.url}`).join('\n') : '- (nog geen pagina\'s)';
 
-export async function schrijfArtikel(db, ctx, account, siteId, { zoekwoord }) {
+// Stap 11: het schrijven is gesplitst. `bereidArtikelVoor` doet de controles en de reservering (direct in het
+// verzoek, zodat de klant meteen hoort of het kan); `schrijfGereserveerdArtikel` doet het echte werk, in de wachtrij.
+export async function bereidArtikelVoor(db, ctx, account, siteId, { zoekwoord }) {
   zoekwoord = String(zoekwoord || '').trim().replace(/\s+/g, ' ');
   if (zoekwoord.length < 2 || zoekwoord.length > 100) throw new Fout('Vul een zoekwoord in van 2 tot 100 tekens.', 400);
-  const { site, wp } = await clientVoorSite(db, ctx, account.id, siteId); // eerst het account (404), dan de rest
+  const { site } = await clientVoorSite(db, ctx, account.id, siteId); // eerst het account (404), dan de rest
   const profiel = await haalProfiel(db, account.id, siteId);
   if (!profiel) throw new Fout('Vul eerst het siteprofiel in (bedrijf, diensten, plaats). Daarmee schrijft Rankcomet over jouw bedrijf en niet over zomaar een bedrijf.', 400, { profiel: siteId });
-
   // Reserveren: volumerem per maand en temporem per dag, in één transactie (artikelen.js).
   const artikel = await reserveerArtikel(db, account, siteId, new Date(), { zoekwoord });
+  return { artikel, zoekwoord, site };
+}
+
+export async function schrijfArtikel(db, ctx, account, siteId, { zoekwoord }) {
+  const voorbereid = await bereidArtikelVoor(db, ctx, account, siteId, { zoekwoord });
+  return schrijfGereserveerdArtikel(db, ctx, account, { siteId, artikelId: voorbereid.artikel.id, zoekwoord: voorbereid.zoekwoord });
+}
+
+export async function schrijfGereserveerdArtikel(db, ctx, account, { siteId, artikelId, zoekwoord }) {
+  const artikel = (await db.query("SELECT id, maand, dag FROM artikelen WHERE id = $1 AND account_id = $2 AND site_id = $3 AND status = 'gereserveerd'", [artikelId, account.id, siteId])).rows[0];
+  if (!artikel) throw new Fout('Dit artikel is niet meer gereserveerd.', 409);
   try {
+    const { site, wp } = await clientVoorSite(db, ctx, account.id, siteId);
+    const profiel = await haalProfiel(db, account.id, siteId);
+    if (!profiel) throw new Fout('Vul eerst het siteprofiel in (bedrijf, diensten, plaats).', 400, { profiel: siteId });
     const paginas = ((await wp.paginas()).paginas || []).filter((p) => p && typeof p.url === 'string' && typeof p.titel === 'string').slice(0, 200);
     const eerdere = (await db.query("SELECT v.nieuw FROM wijziging_velden v JOIN wijzigingen w ON w.id = v.wijziging_id WHERE w.site_id = $1 AND w.doel_type = 'post' AND v.veld = 'inhoud' AND w.status <> 'afgewezen' ORDER BY w.aangemaakt DESC LIMIT 50", [siteId])).rows.map((r) => r.nieuw);
     const systeem = prompt('systeem', profiel, ctx.promptsMap);

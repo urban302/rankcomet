@@ -100,8 +100,8 @@ Gedaan: kandidaten op leeftijd (datum uit de plugin), positiedaling (rank tracki
 ### Stap 10: maandrapport, KLAAR
 Gedaan: `rankcomet-core/src/rapport.js` telt per account per maand de artikelen, voorstellen (op de site gezet, afgewezen, teruggezet), opfrissingen en per site de posities (top 10 aan het begin en einde van de maand, omhoog en omlaag) en de klikken uit Search Console (laatste periode tegenover een maand eerder). Pagina's `/rapport` en `/rapport/<maand>`, mail op de eerste van de maand via de uurlijkse planning, één keer per account per maand (claim in de tabel `rapporten`). Aannames A71 tot A73.
 
-### Stap 11: wachtrij voor het schrijven
-- Artikelen en opfrisvoorstellen schrijven buiten het verzoek om: taak in de wachtrij, "we zijn bezig" in de app, een mail als het klaar is. Eén taak tegelijk per proces, nooit twee keer dezelfde taak.
+### Stap 11: wachtrij voor het schrijven, KLAAR
+Gedaan: `rankcomet-core/src/wachtrij.js` met de tabel `taken`. De controles en de reservering (volumerem, temporem, daggrens) gebeuren nog in het verzoek; het schrijven zelf doet de werker (`startWerker` in `server.js`, elke 5 seconden, één taak tegelijk). "Rankcomet is bezig" op het dashboard, de artikelpagina en de opfrispagina; mail als het klaar is of niet is gelukt. Nooit twee keer dezelfde taak (UNIQUE open_sleutel) en een claim is één atomaire UPDATE. Een vastgelopen taak wordt afgemeld, niet opnieuw gedraaid. Aannames A74 tot A76.
 
 ### Stap 12: je-vorm
 - Alle oude teksten in de u-vorm (R1 en R2) naar de je-vorm, inclusief de tests die erop matchen.

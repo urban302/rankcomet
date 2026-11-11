@@ -9,6 +9,7 @@ import { controleerAlleSites } from './posities.js';
 import { maakGoogle } from './google.js';
 import { verversAlleSites } from './gsc.js';
 import { verstuurMaandrapporten } from './rapport.js';
+import { startWerker } from './wachtrij.js';
 import { laadSleutel } from './geheimen.js';
 import { controleerStripeEnv } from './stripe.js';
 import { bewaartermijnDagen, laadPakketten } from './config.js';
@@ -41,6 +42,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const rankcheck = () => Promise.allSettled([controleerAlleSites(db, { dataforseo, logger }), verversAlleSites(db, { google, logger, geheimenSleutel }), verstuurMaandrapporten(db, { mailer, logger })]).then((rs) => rs.forEach((r) => { if (r.status === 'rejected') logger.log('fout', `planning ${r.reason?.name}`).catch(() => {}); }));
   setTimeout(rankcheck, 60 * 1000).unref();
   setInterval(rankcheck, 3600 * 1000).unref();
+  // Stap 11: de werker van de wachtrij: één taak tegelijk, elke 5 seconden kijken of er iets staat.
+  startWerker(db, app.ctx);
   const poort = Number(process.env.RC_POORT || 3100);
   app.listen(poort, '127.0.0.1', () => process.stdout.write(`Rankcomet luistert op 127.0.0.1:${poort}\n`));
   setInterval(() => logger.ruimOp(bewaartermijnDagen()).catch(() => {}), 6 * 3600 * 1000).unref();
