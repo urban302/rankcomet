@@ -15,6 +15,7 @@ import * as wijz from './wijzigingen.js';
 import { schrijfArtikel } from './pijplijn.js';
 import * as zw from './zoekwoorden.js';
 import * as pos from './posities.js';
+import * as gsc from './gsc.js';
 import { lijstArtikelen, artikelenOverzicht, huidigeMaand } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
@@ -47,9 +48,9 @@ function leesBody(req, max = 1024 * 1024) {
 const formulier = (t) => Object.fromEntries(new URLSearchParams(t));
 const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${naam}=([^;]+)`)); return m ? decodeURIComponent(m[1]) : null; };
 
-export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
+export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
-  const ctx = { ophalen, model, dataforseo, logger, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
+  const ctx = { ophalen, model, dataforseo, google, logger, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
   const begrenzer = maakBegrenzer(grenzen);
   // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
   // laatste adres uit X-Forwarded-For (dat zet onze eigen proxy). Zonder die instelling negeren we de header,
@@ -173,10 +174,10 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger
       return stuur(res, ok ? 200 : 503, pagina('E-mailadres bevestigen', ok ? '<p>We hebben je een nieuwe mail gestuurd. Klik op de link in die mail.</p>' : '<p role="alert">Het versturen van de mail lukte niet. Probeer het later opnieuw.</p>', account));
     }
     if (m === 'GET' && pad === '/dashboard') {
-      const [lijst, alles, overzicht, posities] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account), pos.samenvatting(db, account.id)]);
+      const [lijst, alles, overzicht, posities, searchConsole] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account), pos.samenvatting(db, account.id), gsc.samenvatting(db, account.id)]);
       const pk = laadPakketten().pakketten[account.pakket];
       const melding = url.searchParams.get('m');
-      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, posities, melding }), account));
+      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, posities, searchConsole, melding }), account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
     if (m === 'GET' && pad.startsWith('/api/sites/')) {
@@ -234,6 +235,43 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger
         const sleutel = await wijz.maakPluginSleutel(db, ctx.geheimenSleutel, account.id, siteId);
         await logger.log('info', `pluginsleutel gemaakt account=${account.id} site=${siteId}`);
         return stuur(res, 200, pagina(`Plugin voor ${site.domein}`, `<p>Dit is je nieuwe sleutel. Kopieer hem nu, we laten hem maar één keer zien.</p><pre><code>${esc(sleutel)}</code></pre><p>Plak de sleutel in WordPress bij Instellingen, Rankcomet. Een oude sleutel werkt vanaf nu niet meer.</p><p><a href="/sites/${esc(siteId)}/plugin">Terug</a></p>`, account));
+      }
+    }
+    // Stap 8: Search Console. Google stuurt de klant terug naar /google/terug; de state hoort bij dit account.
+    if (m === 'GET' && pad === '/google/terug') {
+      try {
+        const r = await gsc.terug(db, ctx, account, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') });
+        return naar(res, `/sites/${r.siteId}/search-console`);
+      } catch (e) {
+        if (!(e instanceof acc.Fout)) throw e;
+        return stuur(res, e.status, pagina('Search Console koppelen', `<p role="alert">${esc(e.message)}</p><p><a href="/dashboard">Naar je dashboard</a></p>`, account));
+      }
+    }
+    const gm = pad.match(/^\/sites\/([^/]+)\/search-console(?:\/(start|property|ververs|verbreken))?$/);
+    if (gm) {
+      const [, siteId, actie] = gm;
+      const site = await sites.haalSite(db, account.id, siteId);
+      if (!site) return stuur(res, 404, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account));
+      const toon = async (status = 200, fout = null) => {
+        const k = await gsc.koppeling(db, account.id, siteId);
+        let properties = [];
+        if (k && k.status === 'property_kiezen') { try { properties = await gsc.propertiesVoor(db, ctx, account, siteId); } catch (e) { if (!(e instanceof acc.Fout)) throw e; fout = fout || e.message; } }
+        return stuur(res, status, pagina(`Search Console voor ${site.domein}`, searchConsolePagina(site, k, properties, ctx.google.beschikbaar, url.searchParams.get('m'), fout), account));
+      };
+      if (m === 'GET' && !actie) return toon();
+      if (m === 'POST' && actie) {
+        const f = formulier(await leesBody(req));
+        try {
+          if (actie === 'start') return naar(res, await gsc.start(db, ctx, account, siteId));
+          let melding;
+          if (actie === 'property') { const r = await gsc.kiesProperty(db, ctx, account, siteId, f.property); melding = `Gekoppeld. ${r.paginas} pagina's met cijfers opgehaald.`; }
+          else if (actie === 'ververs') { const r = await gsc.ververs(db, ctx, account, siteId, { forceer: true }); melding = `${r.paginas} pagina's met cijfers opgehaald.`; }
+          else { await gsc.verbreek(db, ctx, account, siteId); melding = 'De koppeling is verbroken en de Google-gegevens zijn verwijderd.'; }
+          return naar(res, `/sites/${siteId}/search-console?m=${encodeURIComponent(melding)}`);
+        } catch (e) {
+          if (!(e instanceof acc.Fout)) throw e;
+          return toon(e.status, e.message);
+        }
       }
     }
     // Stap 6: zoekwoorden per site: onderzoeken, volgen, zelf toevoegen.
@@ -376,7 +414,7 @@ function pluginPagina(site, info) {
 const DOEL_TEKST = { post: 'Bericht', pagina: 'Pagina', product: 'Product', productcategorie: 'Productcategorie' };
 
 // Het dashboard (stap 5): bovenaan wat op de klant wacht, daarna deze maand, wat live staat, wat er over is, de sites.
-function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities = [], melding }) {
+function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities = [], searchConsole = [], melding }) {
   const maand = huidigeMaand();
   const open = wijzigingen.filter((w) => w.status === 'voorstel');
   const dezeMaand = wijzigingen.filter((w) => w.maand === maand);
@@ -404,9 +442,11 @@ function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities
 
   const kaartPosities = `<section class="kaart"><h2>Posities in Google</h2>${posities.length ? `<ul class="lijst">${posities.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${s.gemeten ? `${s.top10} van ${s.gevolgd} ${s.gevolgd === 1 ? 'zoekwoord' : 'zoekwoorden'} in de top 10${s.beter || s.slechter ? `, sinds vorige week ${s.beter} omhoog en ${s.slechter} omlaag` : ''}` : `${s.gevolgd} ${s.gevolgd === 1 ? 'zoekwoord' : 'zoekwoorden'} gevolgd, nog niet gemeten`}. <a href="/sites/${esc(s.id)}/zoekwoorden">Bekijk</a></li>`).join('')}</ul>` : '<p class="stil">Volg zoekwoorden bij een site, dan zie je hier elke dag waar je staat.</p>'}</section>`;
 
-  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
+  const kaartGsc = searchConsole.length ? `<section class="kaart"><h2>Google Search Console</h2><ul class="lijst">${searchConsole.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${s.status === 'gekoppeld' && s.periode_start ? `${s.klikken} klikken en ${s.vertoningen} vertoningen van ${esc(s.periode_start)} tot ${esc(s.periode_eind)}` : s.status === 'verbroken' ? 'de koppeling is verbroken, koppel opnieuw' : 'nog geen cijfers'}. <a href="/sites/${esc(s.site_id)}/search-console">Bekijk</a></li>`).join('')}</ul></section>` : '';
 
-  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartPosities}${kaartLive}${kaartOver}${kaartSites}`;
+  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/search-console">Search Console</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
+
+  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartPosities}${kaartGsc}${kaartLive}${kaartOver}${kaartSites}`;
 }
 const STATUS_TEKST = { voorstel: 'wacht op jou', goedgekeurd: 'wordt verwerkt', gepubliceerd: 'staat op je site', afgewezen: 'niet gedaan', teruggezet: 'teruggezet', mislukt: 'niet gelukt' };
 const doelTekst = (w) => `${DOEL_TEKST[w.doel_type] || w.doel_type}${w.doel_id ? ` ${w.doel_id}` : ' (nieuw)'}`;
@@ -447,6 +487,16 @@ function zoekwoordenPagina(site, lijst, pk, melding, fout, posities = []) {
   const volgKnop = (z) => `<form method="post" action="/sites/${esc(site.id)}/zoekwoorden/volgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Volgen</button></form>`;
   const ontvolgKnop = (z) => `<span class="positie">${esc(positieTekst(perId[z.id]))}</span>${perId[z.id]?.url ? ` <small><a href="${esc(perId[z.id].url)}">pagina</a></small>` : ''} <a href="/sites/${esc(site.id)}/artikel?zoekwoord=${encodeURIComponent(z.zoekwoord)}">Artikel laten schrijven</a> <form method="post" action="/sites/${esc(site.id)}/zoekwoorden/ontvolgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Niet meer volgen</button></form>`;
   return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}<section class="kaart"><h2>Zoekwoorden die je volgt (${gevolgd.length} van ${pk.zoekwoorden_volgen})</h2>${gevolgd.length ? `<p class="stil">Elke dag kijkt Rankcomet waar je site staat in Google (${esc(site.land === 'BE' ? 'België' : 'Nederland')}, de eerste 20 resultaten). Tussen haakjes het verschil met een week geleden.</p><ul class="lijst">${gevolgd.map((z) => rij(z, ontvolgKnop(z))).join('')}</ul><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/controleren"><button class="rustig">Nu controleren</button></form>` : '<p class="stil">Nog geen. Doe een onderzoek of voeg zelf een zoekwoord toe.</p>'}</section><section class="kaart"><h2>Onderzoek doen</h2><p>Vul een woord in waar je op gevonden wilt worden. Rankcomet zoekt ideeën met het aantal zoekopdrachten per maand in ${esc(site.land === 'BE' ? 'België' : 'Nederland')}. Hooguit ${pk.onderzoeken_per_site_per_dag} onderzoeken per dag.</p><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/onderzoek"><label>Startwoord <input name="startwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie"></label><button>Zoek ideeën</button></form><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/toevoegen"><label>Of voeg zelf een zoekwoord toe <input name="zoekwoord" required minlength="2" maxlength="100"></label><button class="rustig">Toevoegen en volgen</button></form></section><section class="kaart"><h2>Ideeën (${ideeen.length})</h2>${ideeen.length ? `<ul class="lijst">${ideeen.map((z) => rij(z, volgKnop(z))).join('')}</ul>` : '<p class="stil">Nog geen ideeën.</p>'}</section>`;
+}
+
+function searchConsolePagina(site, k, properties, beschikbaar, melding, fout) {
+  const kop = `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}`;
+  if (!beschikbaar) return `${kop}<section class="kaart"><p>De koppeling met Google Search Console is nog niet beschikbaar. Zodra Google onze aanvraag heeft goedgekeurd, kun je hier je Search Console koppelen en zie je per pagina de klikken en vertoningen uit Google.</p></section>`;
+  if (!k) return `${kop}<section class="kaart"><p>Koppel je Google Search Console, dan ziet Rankcomet per pagina hoe vaak je in Google wordt getoond en aangeklikt. We vragen alleen leesrechten. Je kunt de koppeling altijd verbreken; dan verwijderen we de Google-gegevens.</p><form method="post" action="/sites/${esc(site.id)}/search-console/start"><button>Koppel Search Console</button></form></section>`;
+  if (k.status === 'property_kiezen') return `${kop}<section class="kaart"><h2>Welke property hoort bij ${esc(site.domein)}?</h2>${properties.length ? `<form method="post" action="/sites/${esc(site.id)}/search-console/property">${properties.map((p, i) => `<label><input type="radio" name="property" value="${esc(p.property)}"${(p.past && !properties.slice(0, i).some((q) => q.past)) ? ' checked' : ''}> ${esc(p.property)}${p.past ? ' (past bij deze site)' : ''}</label>`).join('')}<button>Kies deze property</button></form>` : '<p class="stil">Je Google-account heeft geen properties in Search Console. Voeg je site eerst toe in Search Console.</p>'}<form method="post" action="/sites/${esc(site.id)}/search-console/verbreken"><button class="rustig">Koppeling verbreken</button></form></section>`;
+  if (k.status === 'verbroken') return `${kop}<section class="kaart"><p role="alert">${esc(k.melding || 'De koppeling is verbroken.')}</p><form method="post" action="/sites/${esc(site.id)}/search-console/start"><button>Opnieuw koppelen</button></form><form method="post" action="/sites/${esc(site.id)}/search-console/verbreken"><button class="rustig">Koppeling verwijderen</button></form></section>`;
+  const rijen = k.paginas.map((p) => `<li><span class="sitenaam">${esc(p.pagina.replace(/^https?:\/\/[^/]+/, '') || '/')}</span> <span class="stil">· ${p.klikken} klikken · ${p.vertoningen} vertoningen${p.positie != null ? ` · positie ${p.positie.toFixed(1)}` : ''}</span></li>`).join('');
+  return `${kop}<section class="kaart"><h2>Gekoppeld: ${esc(k.property)}</h2><p>${k.periode_start ? `Cijfers van ${esc(k.periode_start)} tot ${esc(k.periode_eind)}: ${k.totaal.klikken} klikken en ${k.totaal.vertoningen} vertoningen. Rankcomet haalt ze elke dag op.` : 'Nog geen cijfers opgehaald.'}</p><form method="post" action="/sites/${esc(site.id)}/search-console/ververs"><button class="rustig">Nu ophalen</button></form></section><section class="kaart"><h2>Pagina's</h2>${rijen ? `<ul class="lijst">${rijen}</ul>` : '<p class="stil">Nog geen cijfers. Google heeft voor deze periode niets voor deze property, of de site is nieuw.</p>'}</section><section class="kaart"><h2>Koppeling verbreken</h2><p>Dan trekken we de toegang bij Google in en verwijderen we alle Google-gegevens van deze site.</p><form method="post" action="/sites/${esc(site.id)}/search-console/verbreken"><button class="rustig">Verbreken</button></form></section>`;
 }
 
 function bevestigMelding() {

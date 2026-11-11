@@ -8,6 +8,7 @@ import { STANDAARD_GRENZEN } from '../src/grens.js';
 import { handtekening, PLUGIN_PAD } from '../src/wordpress.js';
 import { VELDEN } from '../src/velden.js';
 import { maakDataforseo } from '../src/dataforseo.js';
+import { maakGoogle } from '../src/google.js';
 import { randomBytes } from 'node:crypto';
 
 export const TEST_ENV = {
@@ -120,6 +121,28 @@ export function nepDataforseo({ ideeen = () => [], volumes = () => ({}), serp = 
   return dfs;
 }
 
+// Nep-Google: een nep-fetch voor de token-, revoke- en Search Console-URL's, door de echte client (google.js).
+export function nepGoogle({ properties = ['sc-domain:ZZZ'], rijen = () => [], beschikbaar = true } = {}) {
+  const g = { aanroepen: [], tokens: 0, ingetrokken: [], refreshFout: null, properties, rijen };
+  const fetchFn = async (url, init = {}) => {
+    const u = new URL(url); const body = init.body ? Object.fromEntries(new URLSearchParams(String(init.body))) : {};
+    g.aanroepen.push({ host: u.host, pad: u.pathname, body: init.body ? (init.headers?.['content-type']?.includes('json') ? JSON.parse(init.body) : body) : null, auth: init.headers?.authorization || null });
+    const json = (status, data) => ({ status, ok: status >= 200 && status < 300, json: async () => data });
+    if (u.host === 'oauth2.googleapis.com' && u.pathname === '/token') {
+      if (body.grant_type === 'authorization_code') { if (body.code !== 'goede-code' || !body.code_verifier) return json(400, { error: 'invalid_grant' }); g.tokens++; return json(200, { access_token: `toegang-${g.tokens}`, refresh_token: `ververs-${g.tokens}`, expires_in: 3600 }); }
+      if (g.refreshFout) return json(400, { error: g.refreshFout });
+      g.tokens++; return json(200, { access_token: `toegang-${g.tokens}`, expires_in: 3600 });
+    }
+    if (u.host === 'oauth2.googleapis.com' && u.pathname === '/revoke') { g.ingetrokken.push(body.token); return json(200, {}); }
+    if (!init.headers?.authorization?.startsWith('Bearer toegang-')) return json(401, { error: 'unauthenticated' });
+    if (u.pathname === '/webmasters/v3/sites') return json(200, { siteEntry: g.properties.map((p) => ({ siteUrl: p, permissionLevel: 'siteOwner' })) });
+    if (u.pathname.endsWith('/searchAnalytics/query')) return json(200, { rows: g.rijen(decodeURIComponent(u.pathname.split('/sites/')[1].split('/searchAnalytics')[0]), JSON.parse(init.body)) });
+    return json(404, {});
+  };
+  g.client = maakGoogle(beschikbaar ? { ...TEST_ENV, RC_GOOGLE_CLIENT_ID: 'nep-client', RC_GOOGLE_CLIENT_SECRET: 'nep-geheim' } : TEST_ENV, fetchFn);
+  return g;
+}
+
 // Site toevoegen én koppelen via de echte flow: de koppelcode staat op de nep-homepage.
 export async function koppelSite(db, account, velden, internet = nepInternet()) {
   const { site } = await sites.voegSiteToe(db, account, velden);
@@ -129,13 +152,13 @@ export async function koppelSite(db, account, velden, internet = nepInternet()) 
   return site;
 }
 
-export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet(), model = null, dataforseo = nepDataforseo() } = {}) {
+export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet(), model = null, dataforseo = nepDataforseo(), google = nepGoogle() } = {}) {
   const logger = maakLogger(db);
   const mailer = nepMailer();
-  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, model, dataforseo: dataforseo.client, logger, env, veiligeCookie: false, grenzen });
+  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, model, dataforseo: dataforseo.client, google: google.client, logger, env, veiligeCookie: false, grenzen });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const basis = `http://127.0.0.1:${server.address().port}`;
-  return { server, basis, stripe, mailer, internet, model, dataforseo, logger, sluit: () => new Promise((ok) => server.close(ok)) };
+  return { server, basis, stripe, mailer, internet, model, dataforseo, google, logger, sluit: () => new Promise((ok) => server.close(ok)) };
 }
 
 // Account met bevestigd e-mailadres, via de gewone servicefuncties.
