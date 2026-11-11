@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 7 klaar en de teksten voor de Search Console-aanvraag staan klaar, 105/105 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 8 klaar (blok 4 af) en de teksten voor de Search Console-aanvraag staan klaar, 111/111 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -89,10 +89,8 @@ Gedaan: DataForSEO-client in gewoon JavaScript (`rankcomet-core/src/dataforseo.j
 ### Stap 7: rank tracking, KLAAR
 Gedaan: dagelijkse positie per gevolgd zoekwoord via DataForSEO SERP (`rankcomet-core/src/posities.js`), met de URL die rankt; claim per zoekwoord per dag zodat een herhaling, "Nu controleren" of gelijktijdige runs nooit dubbel betalen; planning elk uur in `src/server.js`; positie en verschil met een week geleden op de zoekwoordenpagina, kaart "Posities in Google" op het dashboard. Aannames A60 tot A62.
 
-### Stap 8: Search Console-koppeling
-- OAuth met Google (scope `webmasters.readonly`), tokens versleuteld met AES-GCM (`src/geheimen.js`), property kiezen.
-- Klikken, vertoningen en posities per pagina ophalen en tonen; de koppeling verbreken verwijdert alles.
-- Kan pas echt getest worden met een Google-client (zie `docs/google-search-console-aanvraag.md`); tot die tijd met een nep-Google.
+### Stap 8: Search Console-koppeling, KLAAR
+Gedaan: OAuth met PKCE en de ene scope (`rankcomet-core/src/google.js`, `src/gsc.js`), eenmalige state per account en site, tokens versleuteld in `geheimen`, property kiezen (de passende bovenaan), klikken, vertoningen en positie per pagina over 28 dagen, één keer per dag ververst in de planning, verbreken trekt in en verwijdert alles, kaart op het dashboard. Zonder `RC_GOOGLE_CLIENT_ID` en `RC_GOOGLE_CLIENT_SECRET` zegt de pagina dat de koppeling nog niet beschikbaar is. Aannames A63 tot A66. Nog te doen: de echte Google-client (na de aanvraag, zie `docs/google-search-console-aanvraag.md`); de redirect-URI die daar moet staan is `https://rankcomet.ai/google/terug`. Dan kan ook de demovideo worden opgenomen.
 
 ## Daarna (volgorde uit de spec)
 - Contentrefresh (positie, klikken, leeftijd) en het maandrapport.

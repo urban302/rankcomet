@@ -6,6 +6,8 @@ import { maakLogger } from './log.js';
 import { controleerAzureEnv, maakModel } from './azure.js';
 import { controleerDataforseoEnv, maakDataforseo } from './dataforseo.js';
 import { controleerAlleSites } from './posities.js';
+import { maakGoogle } from './google.js';
+import { verversAlleSites } from './gsc.js';
 import { laadSleutel } from './geheimen.js';
 import { controleerStripeEnv } from './stripe.js';
 import { bewaartermijnDagen, laadPakketten } from './config.js';
@@ -31,9 +33,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // logt dat en de klant kan het later opnieuw proberen.
   const mailer = { stuur: async () => { throw new Error('Mailer nog niet gekoppeld (R3)'); } };
   const dataforseo = maakDataforseo(process.env, globalThis.fetch, logger);
-  const app = maakApp({ db, stripe, mailer, ophalen: maakOphaler(), model: maakModel(), dataforseo, logger });
+  const google = maakGoogle(process.env, globalThis.fetch, logger);
+  const app = maakApp({ db, stripe, mailer, ophalen: maakOphaler(), model: maakModel(), dataforseo, google, logger });
   // Rank tracking: elk uur alle sites langs; per zoekwoord per dag hooguit één aanroep (claim in posities.js).
-  const rankcheck = () => controleerAlleSites(db, { dataforseo, logger }).catch((e) => logger.log('fout', `rankcheck planning ${e.name}`).catch(() => {}));
+  const geheimenSleutel = laadSleutel();
+  const rankcheck = () => Promise.allSettled([controleerAlleSites(db, { dataforseo, logger }), verversAlleSites(db, { google, logger, geheimenSleutel })]).then((rs) => rs.forEach((r) => { if (r.status === 'rejected') logger.log('fout', `planning ${r.reason?.name}`).catch(() => {}); }));
   setTimeout(rankcheck, 60 * 1000).unref();
   setInterval(rankcheck, 3600 * 1000).unref();
   const poort = Number(process.env.RC_POORT || 3100);

@@ -141,6 +141,42 @@ CREATE TABLE IF NOT EXISTS posities (
   UNIQUE (zoekwoord_id, dag)
 );
 CREATE INDEX IF NOT EXISTS posities_site_dag_idx ON posities(site_id, dag);
+-- Stap 8: Search Console. De OAuth-state (eenmalig, 10 minuten), de koppeling per site en de cijfers per pagina.
+-- Tokens staan niet hier maar versleuteld in geheimen (soort google_refresh en google_access).
+CREATE TABLE IF NOT EXISTS oauth_staten (
+  state_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  verifier_versleuteld TEXT NOT NULL,
+  verloopt TEXT NOT NULL,
+  aangemaakt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS gsc_koppelingen (
+  site_id TEXT PRIMARY KEY REFERENCES sites(id),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  property TEXT NULL,
+  status TEXT NOT NULL,
+  melding TEXT NULL,
+  gekoppeld TEXT NOT NULL,
+  laatst_opgehaald TEXT NULL,
+  periode_start TEXT NULL,
+  periode_eind TEXT NULL,
+  bijgewerkt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS gsc_cijfers (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  pagina TEXT NOT NULL,
+  klikken INTEGER NOT NULL,
+  vertoningen INTEGER NOT NULL,
+  ctr DOUBLE PRECISION NOT NULL,
+  positie DOUBLE PRECISION NULL,
+  periode_start TEXT NOT NULL,
+  periode_eind TEXT NOT NULL,
+  aangemaakt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS gsc_cijfers_site_idx ON gsc_cijfers(site_id);
 -- Stap 4: klantinformatie per site, de basis voor elk artikel en voor de kwaliteitspoort.
 CREATE TABLE IF NOT EXISTS siteprofielen (
   site_id TEXT PRIMARY KEY REFERENCES sites(id),
@@ -267,7 +303,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

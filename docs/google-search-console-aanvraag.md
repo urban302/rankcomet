@@ -48,7 +48,7 @@ Google vraagt een korte video (YouTube, mag "niet vermeld" zijn) die de hele OAu
 1. Open `https://rankcomet.ai`, log in op een testaccount. Laat het dashboard zien.
 2. Ga naar de site van de klant en klik op "Search Console koppelen". Laat zien dat de URL van het toestemmingsscherm begint met `accounts.google.com` en dat de app-naam "Rankcomet" is.
 3. Laat het toestemmingsscherm zien met precies één gevraagde toestemming: "View Search Console data for your verified sites". Klik op Toestaan.
-4. Terug in Rankcomet: kies de property. Laat het dashboard zien met klikken, vertoningen en posities.
+4. Terug in Rankcomet: kies de property (de passende staat bovenaan aangevinkt). Laat de pagina zien met klikken, vertoningen en positie per pagina, en de kaart op het dashboard.
 5. Laat zien waar de klant de koppeling weer verbreekt, en zeg dat de opgeslagen gegevens dan worden verwijderd.
 6. Laat de privacyverklaring op `https://rankcomet.ai/privacy` zien, met de alinea over Google-gegevens.
 
@@ -62,4 +62,4 @@ Let op: de video kan pas worden opgenomen als de Search Console-koppeling in de 
 
 ## 6. Wat er in de code al klaarstaat
 - `rankcomet-core/public/privacy.html`: de privacyverklaring (concept), geserveerd op `/privacy`, openbaar, met de verplichte alinea over Google-gegevens en de "Google API Services User Data Policy".
-- De koppeling zelf (OAuth-flow, opslag van de tokens versleuteld met AES-GCM, het lezen van de Search Analytics) is blok 4 en nog niet gebouwd. De OpenSEO-code daarvoor staat bewaard in `vendor-openseo/src/server/features/gsc/` en `vendor-openseo/src/server/features/google/` en wordt dan overgezet naar gewoon JavaScript.
+- De koppeling zelf is gebouwd in stap 8 (`rankcomet-core/src/google.js` en `src/gsc.js`): OAuth met PKCE, tokens versleuteld, property kiezen, cijfers per pagina, verbreken. Hij werkt zodra `RC_GOOGLE_CLIENT_ID` en `RC_GOOGLE_CLIENT_SECRET` in de omgeving staan. **Geautoriseerde redirect-URI** bij het aanmaken van de OAuth-client: `https://rankcomet.ai/google/terug` (precies zo; op een testomgeving de basis-URL van die omgeving plus `/google/terug`).
