@@ -62,3 +62,22 @@ export async function werkArtikelBij(db, accountId, artikelId, velden) {
 export async function lijstArtikelen(db, accountId, siteId) {
   return (await db.query('SELECT id, zoekwoord, status, score, melding, wijziging_id, aangemaakt FROM artikelen WHERE account_id = $1 AND site_id = $2 ORDER BY aangemaakt DESC', [accountId, siteId])).rows;
 }
+
+// Overzicht voor het dashboard (stap 5): per site hoeveel artikelen er deze maand zijn gemaakt, hoeveel er
+// nog over zijn en hoeveel er vandaag nog kunnen. Teruggeboekte artikelen tellen niet mee.
+export async function artikelenOverzicht(db, account, nu = new Date()) {
+  const pk = pakketVoor(account.pakket), maand = huidigeMaand(nu), dag = huidigeDag(nu);
+  const sitesLijst = (await db.query('SELECT id, domein FROM sites WHERE account_id = $1 ORDER BY aangemaakt, domein', [account.id])).rows;
+  const perSite = (await db.query(`SELECT site_id, COUNT(*) AS n, SUM(CASE WHEN dag = $3 THEN 1 ELSE 0 END) AS vandaag FROM artikelen WHERE account_id = $1 AND maand = $2 AND ${TELT} GROUP BY site_id`, [account.id, maand, dag])).rows;
+  const tel = Object.fromEntries(perSite.map((r) => [r.site_id, { maand: Number(r.n), vandaag: Number(r.vandaag) }]));
+  const totaal = perSite.reduce((t, r) => t + Number(r.n), 0);
+  const overAccount = Math.max(0, pk.artikelen_per_maand - totaal);
+  return {
+    maand, totaal, limiet: pk.artikelen_per_maand, over: overAccount,
+    sites: sitesLijst.map((s) => {
+      const t = tel[s.id] || { maand: 0, vandaag: 0 };
+      const overSite = pk.artikelen_per_site_per_maand == null ? overAccount : Math.min(overAccount, Math.max(0, pk.artikelen_per_site_per_maand - t.maand));
+      return { id: s.id, domein: s.domein, dezeMaand: t.maand, over: overSite, vandaagNog: Math.max(0, pk.artikelen_per_site_per_dag - t.vandaag) };
+    }),
+  };
+}

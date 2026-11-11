@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 4 klaar, 88/88 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 5 klaar, 92/92 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -58,7 +58,9 @@ Gedaan: siteprofiel per site, pijplijn in `rankcomet-core/src/pijplijn.js` (rese
 - Prompts komen in `rankcomet-core/prompts/`. Harde regels staan in code, nooit alleen in een prompt.
 - Een mislukte generatie boekt het artikel terug (zie A22).
 
-## Stap 5: klantdashboard
+## Stap 5: klantdashboard, KLAAR
+Gedaan: dashboard met "Wacht op jou" (Goedkeuren en Niet doen per voorstel), deze maand, live op je site (met Terugzetten), artikelen over per site, je sites. Strikte CSP zonder inline stijl of script, eigen stylesheet, systeemletters. Layouttest op 390 px en 1440 px met Playwright (lokaal). Aannames A54 tot A56.
+
 - In dezelfde stijl als de Sevenai-app v2: rustig, groot, een leek moet het snappen.
 - Bovenaan "Wacht op jou": concepten en voorstellen die een akkoord nodig hebben, met een duidelijke knop "Goedkeuren" en "Niet doen".
 - Daaronder: wat Rankcomet deze maand deed, wat er live staat, wat er terug te zetten is, en hoeveel artikelen er nog over zijn.

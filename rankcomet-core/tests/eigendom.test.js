@@ -20,7 +20,7 @@ test('site koppelen via de app: code tonen, controleren, daarna gekoppeld', asyn
   const html = await (await fetch(app.basis + koppelPad, { headers: { cookie: c } })).text();
   const code = html.match(/content=&quot;(rc-[0-9a-f]{32})&quot;/)[1];
   assert.match(html, /Controleer mijn site/);
-  assert.match(await (await fetch(app.basis + '/dashboard', { headers: { cookie: c } })).text(), /koppel\.test .*nog koppelen/);
+  assert.match(await (await fetch(app.basis + '/dashboard', { headers: { cookie: c } })).text(), /koppel\.test[\s\S]*Nog koppelen/);
 
   // Nog geen metatag: nette fout, site blijft ongekoppeld.
   app.internet.paginas['https://koppel.test/'] = '<html><head><title>Koppel</title></head></html>';
@@ -33,7 +33,7 @@ test('site koppelen via de app: code tonen, controleren, daarna gekoppeld', asyn
   app.internet.paginas['https://koppel.test/'] = `<head><meta name="rankcomet-koppelcode" content="${code}"></head>`;
   const ok = await post(app.basis, koppelPad + '/controleer', {}, c);
   assert.equal(ok.status, 200); assert.match(await ok.text(), /is nu gekoppeld/);
-  assert.match(await (await fetch(app.basis + '/dashboard', { headers: { cookie: c } })).text(), /koppel\.test .*gekoppeld/);
+  assert.match(await (await fetch(app.basis + '/dashboard', { headers: { cookie: c } })).text(), /koppel\.test[\s\S]*Artikel laten schrijven/);
   assert.ok(app.internet.verzoeken.every((u) => u.startsWith('https://koppel.test/')), 'alleen de eigen site wordt opgehaald');
   const log = (await db.query('SELECT bericht FROM logregels')).rows.map((r) => r.bericht).join('\n');
   assert.ok(!log.includes(code), 'koppelcode hoort niet in de log');

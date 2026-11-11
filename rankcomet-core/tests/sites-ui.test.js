@@ -16,7 +16,7 @@ test('NL-UI: inlogpagina, dashboard, formulier en about met MIT', async () => {
   assert.equal((await fetch(app.basis + '/dashboard', { redirect: 'manual' })).status, 303);
   const c = await registreerEnLogin(app, 'ui@test.invalid');
   const dash = await (await fetch(app.basis + '/dashboard', { headers: { cookie: c } })).text();
-  assert.match(dash, /Nog geen sites/); assert.match(dash, /Pakket: <strong>Solo/);
+  assert.match(dash, /Nog geen sites/); assert.match(dash, /nog over in Solo/);
   const form = await (await fetch(app.basis + '/sites/nieuw', { headers: { cookie: c } })).text();
   for (const s of ['WordPress', 'WooCommerce', 'Shopify (wachtlijst)', 'Nederland', 'value="nl"']) assert.ok(form.includes(s), s);
   const over = await (await fetch(app.basis + '/over')).text();

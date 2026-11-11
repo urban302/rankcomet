@@ -1,6 +1,9 @@
 // HTTP-app (node:http, geen framework) met de NL-basis-UI: inloggen, dashboard-shell, site toevoegen,
 // pakketten, Stripe-checkout (testmodus) en webhook. Afhankelijkheden worden geïnjecteerd.
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import * as acc from './accounts.js';
 import * as sites from './sites.js';
 import { laadMerk, laadPakketten } from './config.js';
@@ -10,17 +13,21 @@ import { maakBegrenzer, STANDAARD_GRENZEN } from './grens.js';
 import { verificatieMail, herstelMail } from './mail.js';
 import * as wijz from './wijzigingen.js';
 import { schrijfArtikel } from './pijplijn.js';
-import { lijstArtikelen } from './artikelen.js';
+import { lijstArtikelen, artikelenOverzicht, huidigeMaand } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Eén stylesheet, zelf gehost (public/stijl.css). Geen inline stijl of script: de CSP staat dat niet toe.
+const STIJL = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'stijl.css'), 'utf8');
+export const CSP = "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
 function pagina(titel, inhoud, account) {
   const m = laadMerk();
   const nav = account
-    ? `<nav><a href="/dashboard">Dashboard</a> <a href="/wijzigingen">Wacht op jou</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen" style="display:inline"><button>Uitloggen</button></form></nav>`
+    ? `<nav><a href="/dashboard">Dashboard</a> <a href="/wijzigingen">Wacht op jou</a> <a href="/sites/nieuw">Site toevoegen</a> <a href="/pakketten">Pakketten</a> <a href="/over">Over</a> <form method="post" action="/uitloggen"><button class="rustig">Uitloggen</button></form></nav>`
     : `<nav><a href="/inloggen">Inloggen</a> <a href="/registreren">Account aanmaken</a> <a href="/over">Over</a></nav>`;
-  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titel)} · ${esc(m.merk)}</title></head><body><header><strong>${esc(m.merk)}</strong> ${nav}</header><main><h1>${esc(titel)}</h1>${inhoud}</main><footer><small>${esc(m.merk)} · ${esc(m.domein)} · <a href="/over">Over en licenties</a></small></footer></body></html>`;
+  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titel)} · ${esc(m.merk)}</title><link rel="stylesheet" href="/stijl.css"></head><body><header class="kop"><div class="binnen"><a class="merk" href="/">${esc(m.merk)}</a>${nav}</div></header><main><h1>${esc(titel)}</h1>${inhoud}</main><footer><small>${esc(m.merk)} · ${esc(m.domein)} · <a href="/over">Over en licenties</a></small></footer></body></html>`;
 }
 
 function leesBody(req, max = 1024 * 1024) {
@@ -57,7 +64,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
     catch (e) { await logger.log('fout', `mail mislukt soort=${soort} account=${accountId} ${e.name}`); return false; }
   };
   const zetCookie = (res, w, maxAge) => res.setHeader('set-cookie', `${COOKIE}=${w}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${veiligeCookie ? '; Secure' : ''}`);
-  const stuur = (res, status, html, kop = {}) => { res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin', ...kop }); res.end(html); };
+  const stuur = (res, status, html, kop = {}) => { res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP, 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin', ...kop }); res.end(html); };
   const json = (res, status, o) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
   const naar = (res, w) => { res.writeHead(303, { location: w }); res.end(); };
 
@@ -77,6 +84,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
     const token = cookie(req, COOKIE);
     const account = await acc.accountVoorSessie(db, token);
 
+    if (m === 'GET' && pad === '/stijl.css') { res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); return res.end(STIJL); }
     if (m === 'GET' && pad === '/') return naar(res, account ? '/dashboard' : '/inloggen');
     if (m === 'GET' && pad === '/over') return stuur(res, 200, pagina('Over Rankcomet', `<p>Rankcomet.ai helpt u met SEO-content voor WordPress en WooCommerce.</p><h2>Licenties</h2><p>Rankcomet is gebouwd op <a href="https://github.com/every-app/open-seo">OpenSEO</a>, uitgegeven onder de MIT-licentie. Copyright (c) 2026 Ben Senescu. De volledige licentietekst staat in het bestand LICENSE in de broncode.</p>`, account));
     if (m === 'GET' && pad === '/inloggen') return stuur(res, 200, pagina('Inloggen', inlogForm('/inloggen', 'Inloggen', url.searchParams.get('fout'))));
@@ -159,12 +167,10 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
       return stuur(res, ok ? 200 : 503, pagina('E-mailadres bevestigen', ok ? '<p>We hebben je een nieuwe mail gestuurd. Klik op de link in die mail.</p>' : '<p role="alert">Het versturen van de mail lukte niet. Probeer het later opnieuw.</p>', account));
     }
     if (m === 'GET' && pad === '/dashboard') {
-      const lijst = await sites.lijstSites(db, account.id);
+      const [lijst, alles, overzicht] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account)]);
       const pk = laadPakketten().pakketten[account.pakket];
-      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)} · ${s.bevestigd ? `gekoppeld · <a href="/sites/${esc(s.id)}/plugin">plugin</a> · <a href="/sites/${esc(s.id)}/profiel">profiel</a> · <a href="/sites/${esc(s.id)}/artikel">artikel laten schrijven</a>` : `<a href="/sites/${esc(s.id)}/koppelen">nog koppelen</a>`}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
-      const open = (await wijz.lijst(db, account.id, { status: 'voorstel' })).length;
-      const wacht = open ? `<section role="status"><p><strong>Wacht op jou:</strong> ${open} ${open === 1 ? 'voorstel' : 'voorstellen'}. <a href="/wijzigingen">Bekijk en keur goed</a></p></section>` : '';
-      return stuur(res, 200, pagina('Dashboard', `${account.geverifieerd ? '' : bevestigMelding()}${wacht}<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
+      const melding = url.searchParams.get('m');
+      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, melding }), account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
     if (m === 'GET' && pad.startsWith('/api/sites/')) {
@@ -279,10 +285,12 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
           else uitkomst = await wijz.publiceer(db, ctx, account, id);
           await logger.log('info', `wijziging ${actie} account=${account.id} wijziging=${id} status=${uitkomst.wijziging ? uitkomst.wijziging.status : 'afgewezen'}`);
           const tekst = uitkomst.afgewezen ? 'Dit voorstel doen we niet.' : uitkomst.terugNaarRij ? 'Je site is intussen aangepast. We hebben het voorstel bijgewerkt; kijk het nog eens na.' : actie === 'terugzetten' ? 'De oude tekst staat weer op je site.' : uitkomst.wijziging.modus === 'publiceren' ? 'Het staat live op je site.' : 'Het staat als concept klaar op je site.';
+          if (f.terug === 'dashboard') return naar(res, `/dashboard?m=${encodeURIComponent(tekst)}`);
           return stuur(res, 200, pagina(doelTekst(w), `<p>${esc(tekst)}</p><p><a href="/wijzigingen/${esc(id)}">Bekijk</a> · <a href="/wijzigingen">Terug naar de lijst</a></p>`, account));
         } catch (e) {
           if (!(e instanceof acc.Fout)) throw e;
           await logger.log('info', `wijziging ${actie} mislukt account=${account.id} wijziging=${id} status=${e.status}`);
+          if (f.terug === 'dashboard') return naar(res, `/dashboard?m=${encodeURIComponent(e.message)}`);
           return stuur(res, e.status, pagina(doelTekst(w), wijzigingPagina(await wijz.haal(db, account.id, id), e.message), account));
         }
       }
@@ -331,6 +339,38 @@ function pluginPagina(site, info) {
 }
 
 const DOEL_TEKST = { post: 'Bericht', pagina: 'Pagina', product: 'Product', productcategorie: 'Productcategorie' };
+
+// Het dashboard (stap 5): bovenaan wat op de klant wacht, daarna deze maand, wat live staat, wat er over is, de sites.
+function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, melding }) {
+  const maand = huidigeMaand();
+  const open = wijzigingen.filter((w) => w.status === 'voorstel');
+  const dezeMaand = wijzigingen.filter((w) => w.maand === maand);
+  const live = wijzigingen.filter((w) => w.status === 'gepubliceerd').slice(0, 20);
+  const tel = (st) => dezeMaand.filter((w) => w.status === st && !w.terugzet_van).length;
+  const mv = (n, een, meer) => `${n} ${n === 1 ? een : meer}`;
+  const titelVan = (w) => w.titel ? w.titel : doelTekst(w);
+
+  // [A55] Goedkeuren op het dashboard: een nieuw onderdeel komt als concept in WordPress; een bestaand onderdeel
+  // krijgt de nieuwe tekst live. Wie het anders wil, kiest dat op de detailpagina.
+  const kaartWacht = `<section class="kaart wacht" aria-labelledby="wacht"><h2 id="wacht">Wacht op jou</h2>${open.length ? open.map((w) => {
+    const modus = w.doel_id ? 'publiceren' : 'concept';
+    const gevolg = w.doel_id ? 'Na goedkeuren komt de nieuwe tekst live op je site.' : 'Na goedkeuren komt het als concept in WordPress.';
+    return `<div class="voorstel"><div class="wat"><strong>${esc(w.domein)}: ${esc(titelVan(w))}</strong>${esc(w.reden)}<br><small>${esc(gevolg)} <a href="/wijzigingen/${esc(w.id)}">Bekijk het verschil</a></small></div><div class="acties"><form method="post" action="/wijzigingen/${esc(w.id)}/goedkeuren"><input type="hidden" name="modus" value="${modus}"><input type="hidden" name="terug" value="dashboard"><button>Goedkeuren</button></form><form method="post" action="/wijzigingen/${esc(w.id)}/afwijzen"><input type="hidden" name="terug" value="dashboard"><button class="rustig">Niet doen</button></form></div></div>`;
+  }).join('') : '<p class="stil">Niets. Rankcomet heeft nu geen voorstellen voor je.</p>'}</section>`;
+
+  const kaartMaand = `<section class="kaart"><h2>Deze maand</h2><div class="kaarten"><div><div class="cijfer">${overzicht.totaal}<small>${overzicht.totaal === 1 ? 'artikel geschreven' : 'artikelen geschreven'}</small></div></div><div><div class="cijfer">${tel('gepubliceerd') + tel('teruggezet')}<small>op je site gezet</small></div></div><div><div class="cijfer">${tel('afgewezen')}<small>door jou afgewezen</small></div></div><div><div class="cijfer">${overzicht.over}<small>${overzicht.over === 1 ? 'artikel' : 'artikelen'} nog over in ${esc(pk.naam)}</small></div></div></div></section>`;
+
+  const kaartLive = `<section class="kaart"><h2>Live op je site</h2>${live.length ? `<ul class="lijst">${live.map((w) => {
+    const terug = w.doel_id && !w.terugzet_van && Number(w.zonder_oud) === 0; // zelfde regel als zetTerug: alleen met oude waarden
+    return `<li><span class="sitenaam">${esc(w.domein)}</span>: ${esc(titelVan(w))} <span class="stil">· ${esc(w.gepubliceerd ? w.gepubliceerd.slice(0, 10) : '')}</span> · <a href="/wijzigingen/${esc(w.id)}">bekijk</a>${terug ? ` <form method="post" action="/wijzigingen/${esc(w.id)}/terugzetten"><input type="hidden" name="terug" value="dashboard"><button class="rustig">Terugzetten</button></form>` : ''}</li>`;
+  }).join('')}</ul>` : '<p class="stil">Nog niets. Zodra je een voorstel goedkeurt, staat het hier, met een knop om het terug te zetten.</p>'}</section>`;
+
+  const kaartOver = `<section class="kaart"><h2>Artikelen over</h2><p>Je pakket ${esc(pk.naam)}: ${mv(pk.artikelen_per_maand, 'artikel', 'artikelen')} per maand${pk.artikelen_per_site_per_maand ? `, ${pk.artikelen_per_site_per_maand} per site` : ''}, hooguit ${pk.artikelen_per_site_per_dag} per site per dag.</p>${overzicht.sites.length ? `<ul class="lijst">${overzicht.sites.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${mv(s.dezeMaand, 'artikel', 'artikelen')} deze maand, nog ${s.over} over${s.over ? `, vandaag nog ${s.vandaagNog}` : ''}.</li>`).join('')}</ul>` : ''}</section>`;
+
+  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
+
+  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartLive}${kaartOver}${kaartSites}`;
+}
 const STATUS_TEKST = { voorstel: 'wacht op jou', goedgekeurd: 'wordt verwerkt', gepubliceerd: 'staat op je site', afgewezen: 'niet gedaan', teruggezet: 'teruggezet', mislukt: 'niet gelukt' };
 const doelTekst = (w) => `${DOEL_TEKST[w.doel_type] || w.doel_type}${w.doel_id ? ` ${w.doel_id}` : ' (nieuw)'}`;
 const statusTekst = (st) => STATUS_TEKST[st] || st;
@@ -338,7 +378,7 @@ const statusTekst = (st) => STATUS_TEKST[st] || st;
 function wijzigingPagina(w, fout) {
   const velden = Object.entries(w.velden).map(([veld, v]) => `<section><h3>${esc(veld.replace(/_/g, ' '))}</h3>${v.oud !== null ? `<p><strong>Nu:</strong></p><pre>${esc(v.oud)}</pre>` : ''}<p><strong>Voorstel:</strong></p><pre>${esc(v.nieuw)}</pre></section>`).join('');
   let knoppen = '';
-  if (w.status === 'voorstel') knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/goedkeuren"><label><input type="radio" name="modus" value="concept" checked> Als concept klaarzetten (ik publiceer zelf in WordPress)</label><label><input type="radio" name="modus" value="publiceren"> Meteen publiceren</label><button>Goedkeuren</button></form><form method="post" action="/wijzigingen/${esc(w.id)}/afwijzen"><label>Waarom niet? (mag leeg) <input name="reden"></label><button>Niet doen</button></form>`;
+  if (w.status === 'voorstel') knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/goedkeuren"><label><input type="radio" name="modus" value="concept" checked> Als concept klaarzetten (ik publiceer zelf in WordPress)</label><label><input type="radio" name="modus" value="publiceren"> Meteen publiceren</label><button>Goedkeuren</button></form><form method="post" action="/wijzigingen/${esc(w.id)}/afwijzen"><label>Waarom niet? (mag leeg) <input name="reden"></label><button class="rustig">Niet doen</button></form>`;
   if (w.status === 'gepubliceerd' && w.doel_id && !Object.values(w.velden).some((v) => v.oud === null)) knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/terugzetten"><button>Terugzetten naar de oude tekst</button></form>`;
   if (w.status === 'mislukt') knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/opnieuw"><button>Opnieuw proberen</button></form>`;
   return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${w.melding ? `<p role="status">${esc(w.melding)}</p>` : ''}<p>Status: ${esc(statusTekst(w.status))}. Reden: ${esc(w.reden)}</p>${velden}${knoppen}<p><a href="/wijzigingen">Terug naar de lijst</a></p>`;

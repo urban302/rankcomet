@@ -184,7 +184,7 @@ test('via de app: Wacht op jou, goedkeuren en afwijzen', async () => {
   const w1 = await wijz.stelVoor(db, ctx, account, site.id, { doelType: 'post', doelId: 1, velden: { titel: 'Eerste' }, reden: 'Reden 1' });
   const w2 = await wijz.stelVoor(db, ctx, account, site.id, { doelType: 'post', doelId: 2, velden: { titel: 'Tweede' }, reden: 'Reden 2' });
   const dash = await (await fetch(app.basis + '/dashboard', { headers: { cookie: c } })).text();
-  assert.match(dash, /Wacht op jou:<\/strong> 2 voorstellen/);
+  assert.equal((dash.match(/<button>Goedkeuren<\/button>/g) || []).length, 2);
   const detail = await (await fetch(app.basis + `/wijzigingen/${w1.id}`, { headers: { cookie: c } })).text();
   assert.match(detail, /Oude titel/); assert.match(detail, /Eerste/); assert.match(detail, /Goedkeuren/); assert.match(detail, /Niet doen/);
   const ok = await post(app.basis, `/wijzigingen/${w1.id}/goedkeuren`, { modus: 'publiceren' }, c);
