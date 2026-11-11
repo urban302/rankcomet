@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 en stap 1 klaar, 55/55 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0, 1 en 2 klaar, 66/66 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -29,7 +29,9 @@ Besloten door Erwin bij stap 0: de zoekwoordcode in `vendor-openseo/` wordt zelf
   - A20: ja, Bureau-proef mag een WooCommerce-site koppelen (zoals nu in de code).
   - A21: ja, bij Bureau-proef geldt naast 10 per site ook een totaal van 50 per account (zoals nu in de code).
 
-## Stap 2: eigendom van het domein controleren
+## Stap 2: eigendom van het domein controleren, KLAAR
+Gedaan: koppelcode per site, controle van een metatag op de homepage via de veilige ophaler (`rankcomet-core/src/ophalen.js`), artikelen alleen op een bevestigde site, grens van 10 controles per site per uur. Aannames A37 tot A40. De WordPress-plugin (stap 3) kan de metatag zelf plaatsen.
+
 - Een site telt pas als gekoppeld als de klant bewijst dat het domein van hem is.
 - Werkwijze: Rankcomet maakt een koppelcode per site. De klant plakt die in de WordPress-plugin (stap 3) of in een metatag. Rankcomet controleert de code op de site.
 - Fetchen van klantsites alleen via een veilige fetcher: alleen https, geen interne of privé-IP-adressen (SSRF), korte time-out, maximale grootte.

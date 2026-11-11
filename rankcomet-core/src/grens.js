@@ -15,6 +15,7 @@ export const STANDAARD_GRENZEN = {
   herstel_ip: { max: 10, ms: UUR },          // wachtwoord vergeten
   herstel_email: { max: 3, ms: UUR },
   opnieuw_account: { max: 3, ms: UUR },      // bevestigingsmail opnieuw sturen
+  koppelcontrole_site: { max: 10, ms: UUR }, // koppelcode controleren op een klantsite (haalt die site op)
 };
 
 export function maakBegrenzer(grenzen = STANDAARD_GRENZEN, klok = Date.now) {

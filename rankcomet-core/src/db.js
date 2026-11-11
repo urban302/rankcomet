@@ -156,10 +156,17 @@ export async function maakDb(env = process.env) {
 export async function migreer(db) {
   await db.exec(SCHEMA);
   // R3: moment waarop het e-mailadres is bevestigd (NULL = nog niet bevestigd).
-  if (db.soort === 'pg') await db.exec('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_geverifieerd TEXT NULL');
-  else if (!(await db.query("SELECT name FROM pragma_table_info('accounts')")).rows.some((k) => k.name === 'email_geverifieerd')) {
-    await db.exec('ALTER TABLE accounts ADD COLUMN email_geverifieerd TEXT NULL');
-  }
+  await voegKolomToe(db, 'accounts', 'email_geverifieerd', 'TEXT NULL');
+  // Stap 2: koppelcode per site en het moment waarop het eigendom van het domein is bevestigd.
+  await voegKolomToe(db, 'sites', 'koppelcode', 'TEXT NULL');
+  await voegKolomToe(db, 'sites', 'eigendom_bevestigd', 'TEXT NULL');
+}
+
+// Toevoegende migratie: een kolom erbij als die er nog niet is. Verwijdert nooit iets.
+async function voegKolomToe(db, tabel, kolom, definitie) {
+  if (db.soort === 'pg') return db.exec(`ALTER TABLE ${tabel} ADD COLUMN IF NOT EXISTS ${kolom} ${definitie}`);
+  const bestaat = (await db.query(`SELECT name FROM pragma_table_info('${tabel}')`)).rows.some((k) => k.name === kolom);
+  if (!bestaat) await db.exec(`ALTER TABLE ${tabel} ADD COLUMN ${kolom} ${definitie}`);
 }
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).

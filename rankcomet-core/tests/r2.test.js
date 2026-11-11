@@ -1,7 +1,7 @@
 // R2: F-R1-1 (webhook transactioneel), sitelimiet bij gelijktijdige aanvragen, A6 (artikelen per site), A8 (WooCommerce alleen Pro).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { nieuweDb, startApp, registreerEnLogin, post, TEST_ENV, registreerBevestigd } from './helpers.js';
+import { nieuweDb, startApp, registreerEnLogin, post, TEST_ENV, registreerBevestigd, koppelSite } from './helpers.js';
 import * as acc from '../src/accounts.js';
 import * as sites from '../src/sites.js';
 import { reserveerArtikel } from '../src/artikelen.js';
@@ -64,7 +64,7 @@ test('A6: Bureau-proef 10 artikelen per site per maand, niet vrij te verdelen (5
   assert.equal(p.bureau_proef.artikelen_per_site_per_maand, 10); assert.equal(p.bureau_proef.artikelen_per_maand, 50);
   const a = await registreerBevestigd(db, 'bureau-art@test.invalid', 'Testwachtwoord-123!', 'bureau_proef');
   const ids = [];
-  for (let i = 0; i < 5; i++) ids.push((await sites.voegSiteToe(db, a, { domein: `art${i}.test`, platform: 'wordpress' })).site.id);
+  for (let i = 0; i < 5; i++) ids.push((await koppelSite(db, a, { domein: `art${i}.test`, platform: 'wordpress' })).id);
   const nu = new Date('2026-11-15T12:00:00Z');
   for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, ids[0], nu);
   const f = await reserveerArtikel(db, a, ids[0], nu).catch((e) => e);
@@ -78,7 +78,7 @@ test('A6: Bureau-proef 10 artikelen per site per maand, niet vrij te verdelen (5
 
 test('A6: gelijktijdige artikelaanvragen op één site blijven binnen 10', async () => {
   const a = await registreerBevestigd(db, 'bureau-art2@test.invalid', 'Testwachtwoord-123!', 'bureau_proef');
-  const s = (await sites.voegSiteToe(db, a, { domein: 'artrace.test', platform: 'wordpress' })).site.id;
+  const s = (await koppelSite(db, a, { domein: 'artrace.test', platform: 'wordpress' })).id;
   const rs = await Promise.allSettled(Array.from({ length: 15 }, () => reserveerArtikel(db, a, s)));
   assert.equal(rs.filter((r) => r.status === 'fulfilled').length, 10);
 });
@@ -86,7 +86,7 @@ test('A6: gelijktijdige artikelaanvragen op één site blijven binnen 10', async
 test('artikelen: Solo 10 per account; site van een ander account geweigerd', async () => {
   const a = await registreerBevestigd(db, 'solo-art@test.invalid', 'Testwachtwoord-123!', 'solo');
   const b = await registreerBevestigd(db, 'solo-art-b@test.invalid', 'Testwachtwoord-123!', 'solo');
-  const s = (await sites.voegSiteToe(db, a, { domein: 'soloart.test', platform: 'wordpress' })).site.id;
+  const s = (await koppelSite(db, a, { domein: 'soloart.test', platform: 'wordpress' })).id;
   for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s);
   const f = await reserveerArtikel(db, a, s).catch((e) => e);
   assert.equal(f.status, 403); assert.match(f.message, /maximum van 10 artikelen van uw pakket Solo bereikt\. Upgrade naar Pro/);
