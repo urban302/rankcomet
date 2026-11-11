@@ -33,12 +33,12 @@ async function klantMetVoorstellen(naam) {
 
 test('strikte CSP op elke pagina, geen inline stijl of script, stylesheet zelf gehost', async () => {
   const c = await registreerEnLogin(app, 'csp@test.invalid');
-  for (const pad of ['/inloggen', '/registreren', '/over', '/wachtwoord-vergeten']) {
+  for (const pad of ['/inloggen', '/registreren', '/over', '/wachtwoord-vergeten', '/privacy']) {
     const r = await haal(pad);
     assert.equal(r.headers.get('content-security-policy'), CSP, pad);
     const html = await r.text();
     assert.doesNotMatch(html, /<script|\bstyle=|<style|\bon\w+=/i, pad);
-    assert.doesNotMatch(html, /(src|href)="https?:\/\/(?!github\.com)/i, `${pad}: geen externe bronnen`);
+    assert.doesNotMatch(html, /<(script|img)[^>]*\ssrc="https?:|<link[^>]*\shref="https?:/i, `${pad}: geen externe bronnen (gewone links mogen wel)`);
     assert.match(html, /<link rel="stylesheet" href="\/stijl\.css">/);
   }
   for (const pad of ['/dashboard', '/wijzigingen', '/sites/nieuw', '/pakketten']) {
@@ -128,4 +128,14 @@ test('layout op 390 px en 1440 px: geen horizontaal scrollen, stijl geladen onde
     }
     assert.deepEqual(fouten.filter((f) => /Content Security Policy/i.test(f)), []);
   } finally { await browser.close(); }
+});
+
+test('privacyverklaring: openbaar, met de verplichte alinea over Google Search Console', async () => {
+  const r = await haal('/privacy');
+  assert.equal(r.status, 200);
+  const html = await r.text();
+  assert.match(html, /<h1>Privacyverklaring<\/h1>/);
+  assert.match(html, /webmasters\.readonly/); assert.match(html, /Google API Services User Data Policy/);
+  assert.match(html, /verwijderen we de opgeslagen Search Console-gegevens/);
+  assert.match(html, /<a href="\/privacy">Privacy<\/a>/, 'link in de voettekst');
 });

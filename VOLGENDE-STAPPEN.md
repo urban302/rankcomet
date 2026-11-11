@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 5 klaar, 92/92 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 5 klaar en de teksten voor de Search Console-aanvraag staan klaar, 93/93 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -68,7 +68,23 @@ Gedaan: dashboard met "Wacht op jou" (Goedkeuren en Niet doen per voorstel), dez
 - Test op 390 px en 1440 px.
 
 ## Los, nu al regelen
-- Google Search Console OAuth-verificatie vroeg aanvragen bij Google. Dat duurt weken. Erwin doet de aanvraag; Claude Code kan de benodigde teksten (privacybeleid, scopes, uitleg) klaarzetten.
+- Google Search Console OAuth-verificatie vroeg aanvragen bij Google. Dat duurt weken. Erwin doet de aanvraag. KLAARGEZET: `docs/google-search-console-aanvraag.md` (velden van het toestemmingsscherm, de ene scope met toelichting in het Engels en Nederlands, videoscript, tijdlijn) en de privacyverklaring (concept) op `/privacy` in de app (`rankcomet-core/public/privacy.html`). Erwin vult de rechtspersoon in en dient de aanvraag in; de video kan pas na blok 4 (de koppeling zelf).
+
+## Open vragen voor Erwin (uit de pull requests van stap 1 tot 5)
+- Mailprovider in de EU en het afzendadres (A34); tot die er is kan niemand zijn e-mailadres bevestigen.
+- Azure OpenAI: EU-endpoint, regio, deploymentnaam en sleutel (A48); daarna één echt artikel draaien en de kosten meten.
+- Een WordPress-testsite met Yoast, Rank Math en WooCommerce om de plugin echt te draaien (A47).
+- Grenzen: rate limiting (A32), wijzigingen per site per maand (A43), artikelen per site per dag (A49), het woordfilter (A50).
+- "Goedkeuren als concept" bij een bestaand bericht zet het tijdelijk offline (A46, A55): zo houden of anders?
+- Een wachtrij voor het schrijven, zodat het niet in het verzoek zelf gebeurt (A52).
+- Ook een bestand toestaan voor de koppelcontrole, naast de metatag (stap 2)? Mag één domein bij meer accounts bevestigd zijn?
+- De oude teksten in de u-vorm naar de je-vorm (A36).
+- Stijl van de Sevenai-app v2: schermafdruk of kleuren en letters (A54).
+
+## Daarna (volgorde uit de spec)
+- Blok 4: Search Console-koppeling (na goedkeuring door Google) en rank tracking via DataForSEO; de adapter die de zoekwoordcode uit `vendor-openseo/` omzet naar gewoon JavaScript.
+- Contentrefresh (positie, klikken, leeftijd) en het maandrapport.
+- Bèta NL, januari 2027.
 
 ## Niet doen
 - Niets uitrollen. Geen `wrangler deploy`, geen Every App, geen push naar `main`.
