@@ -88,7 +88,7 @@ export async function voegSiteToe(db, account, { domein, taal = 'nl', land = 'NL
   if (platform === 'woocommerce' && !pk.woocommerce_koppelen) {
     // A8 (besloten door Erwin 1-11): WooCommerce alleen vanaf Pro.
     const up = eerstePakketMet((p) => p.woocommerce_koppelen);
-    throw new Fout(`Uw pakket ${pk.naam} ondersteunt geen WooCommerce-webshop. Upgrade naar ${up.naam} om een WooCommerce-webshop te koppelen.`, 403, { upgrade: up.id });
+    throw new Fout(`Je pakket ${pk.naam} ondersteunt geen WooCommerce-webshop. Upgrade naar ${up.naam} om een WooCommerce-webshop te koppelen.`, 403, { upgrade: up.id });
   }
   const id = randomUUID();
   // Sitelimiet atomair: in een transactie met een rijslot op het account (PG: SELECT ... FOR UPDATE),
@@ -100,11 +100,11 @@ export async function voegSiteToe(db, account, { domein, taal = 'nl', land = 'NL
     const aantal = (await tx.query('SELECT COUNT(*) AS n FROM sites WHERE account_id = $1', [account.id])).rows[0].n;
     if (Number(aantal) >= pk.max_sites) {
       const up = upgradeOptie(account.pakket);
-      throw new Fout(`Uw pakket ${pk.naam} staat maximaal ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} toe. ` +
+      throw new Fout(`Je pakket ${pk.naam} staat maximaal ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} toe. ` +
         (up ? `Upgrade naar ${up.naam} voor maximaal ${up.max_sites} sites.` : 'Neem contact met ons op voor meer sites.'), 403, { upgrade: up ? up.id : null });
     }
     const dubbel = await tx.query('SELECT 1 AS x FROM sites WHERE account_id = $1 AND domein = $2', [account.id, domein]);
-    if (dubbel.rows.length) throw new Fout('Deze site staat al in uw account.', 409);
+    if (dubbel.rows.length) throw new Fout('Deze site staat al in je account.', 409);
     await tx.query('INSERT INTO sites (id, account_id, domein, taal, land, platform, aangemaakt, koppelcode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
       [id, account.id, domein, taal, land, platform, new Date().toISOString(), nieuweKoppelcode()]);
   });

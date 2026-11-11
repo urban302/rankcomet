@@ -92,7 +92,7 @@ test('artikelen: Solo 10 per account; site van een ander account geweigerd', asy
   const dag = (i) => new Date(`2026-11-${String(10 + (i % 5)).padStart(2, '0')}T12:00:00Z`); // Solo: 2 per dag
   for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, dag(i));
   const f = await reserveerArtikel(db, a, s, dag(10)).catch((e) => e);
-  assert.equal(f.status, 403); assert.match(f.message, /maximum van 10 artikelen van uw pakket Solo bereikt\. Upgrade naar Pro/);
+  assert.equal(f.status, 403); assert.match(f.message, /maximum van 10 artikelen van je pakket Solo bereikt\. Upgrade naar Pro/);
   assert.equal((await reserveerArtikel(db, b, s).catch((e) => e)).status, 404);
 });
 
@@ -100,7 +100,7 @@ test('A8: Solo kan geen WooCommerce koppelen (u-vorm, upgradelink); Pro en Burea
   const a = await registreerBevestigd(db, 'solo-woo@test.invalid', 'Testwachtwoord-123!', 'solo');
   const f = await sites.voegSiteToe(db, a, { domein: 'shop.test', platform: 'woocommerce' }).catch((e) => e);
   assert.equal(f.status, 403); assert.equal(f.upgrade, 'pro');
-  assert.match(f.message, /^Uw pakket Solo ondersteunt geen WooCommerce-webshop\. Upgrade naar Pro/);
+  assert.match(f.message, /^Je pakket Solo ondersteunt geen WooCommerce-webshop\. Upgrade naar Pro/);
   assert.equal((await sites.lijstSites(db, a.id)).length, 0);
   for (const pk of ['pro', 'bureau_proef']) {
     const b = await registreerBevestigd(db, `${pk}-woo@test.invalid`, 'Testwachtwoord-123!', pk);
@@ -110,7 +110,7 @@ test('A8: Solo kan geen WooCommerce koppelen (u-vorm, upgradelink); Pro en Burea
   const r = await post(app.basis, '/sites/nieuw', { domein: 'webshop.test', taal: 'nl', land: 'BE', platform: 'woocommerce' }, c);
   assert.equal(r.status, 403);
   const html = await r.text();
-  assert.match(html, /Uw pakket Solo ondersteunt geen WooCommerce-webshop\. Upgrade naar Pro/);
+  assert.match(html, /Je pakket Solo ondersteunt geen WooCommerce-webshop\. Upgrade naar Pro/);
   assert.match(html, /href="\/pakketten"/);
 });
 

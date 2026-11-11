@@ -103,8 +103,8 @@ Gedaan: `rankcomet-core/src/rapport.js` telt per account per maand de artikelen,
 ### Stap 11: wachtrij voor het schrijven, KLAAR
 Gedaan: `rankcomet-core/src/wachtrij.js` met de tabel `taken`. De controles en de reservering (volumerem, temporem, daggrens) gebeuren nog in het verzoek; het schrijven zelf doet de werker (`startWerker` in `server.js`, elke 5 seconden, één taak tegelijk). "Rankcomet is bezig" op het dashboard, de artikelpagina en de opfrispagina; mail als het klaar is of niet is gelukt. Nooit twee keer dezelfde taak (UNIQUE open_sleutel) en een claim is één atomaire UPDATE. Een vastgelopen taak wordt afgemeld, niet opnieuw gedraaid. Aannames A74 tot A76.
 
-### Stap 12: je-vorm
-- Alle oude teksten in de u-vorm (R1 en R2) naar de je-vorm, inclusief de tests die erop matchen.
+### Stap 12: je-vorm, KLAAR
+Gedaan: de laatste zes teksten in de u-vorm (pakketlimieten in `sites.js` en `artikelen.js`, de pagina Over) staan in de je-vorm, de tests die erop matchen zijn aangepast, en `tests/je-vorm.test.js` bewaakt dat de u-vorm niet terugkomt in app, mails, prompts, publieke pagina's en plugin.
 
 ## Daarna
 - Bèta NL, januari 2027, zodra de open vragen voor Erwin zijn beantwoord en de spullen er zijn.

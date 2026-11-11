@@ -35,7 +35,7 @@ De repo is een fork van OpenSEO (MIT). Daarnaast staat onze eigen kern in `rankc
 ```
 cd rankcomet-core
 npm ci --offline
-env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 127/127 groen
+env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 128/128 groen
 RC_DB=pg PG_TEST_HOST=... PG_TEST_USER=... PG_TEST_DB=... PG_TEST_PWFILE=... npm run test:pg
 ```
 - Tests moeten groen blijven op SQLite. Raakt je wijziging de database, draai dan ook de PG-tests (of meld dat er geen test-PG was).

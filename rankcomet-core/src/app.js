@@ -95,7 +95,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
 
     if (m === 'GET' && pad === '/stijl.css') { res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); return res.end(STIJL); }
     if (m === 'GET' && pad === '/') return naar(res, account ? '/dashboard' : '/inloggen');
-    if (m === 'GET' && pad === '/over') return stuur(res, 200, pagina('Over Rankcomet', `<p>Rankcomet.ai helpt u met SEO-content voor WordPress en WooCommerce.</p><h2>Licenties</h2><p>Rankcomet is gebouwd op <a href="https://github.com/every-app/open-seo">OpenSEO</a>, uitgegeven onder de MIT-licentie. Copyright (c) 2026 Ben Senescu. De volledige licentietekst staat in het bestand LICENSE in de broncode.</p>`, account));
+    if (m === 'GET' && pad === '/over') return stuur(res, 200, pagina('Over Rankcomet', `<p>Rankcomet.ai helpt je met SEO-content voor WordPress en WooCommerce.</p><h2>Licenties</h2><p>Rankcomet is gebouwd op <a href="https://github.com/every-app/open-seo">OpenSEO</a>, uitgegeven onder de MIT-licentie. Copyright (c) 2026 Ben Senescu. De volledige licentietekst staat in het bestand LICENSE in de broncode.</p>`, account));
     if (m === 'GET' && pad === '/privacy') return stuur(res, 200, pagina('Privacyverklaring', PRIVACY, account));
     if (m === 'GET' && pad === '/inloggen') return stuur(res, 200, pagina('Inloggen', inlogForm('/inloggen', 'Inloggen', url.searchParams.get('fout'))));
     if (m === 'GET' && pad === '/registreren') return stuur(res, 200, pagina('Account aanmaken', inlogForm('/registreren', 'Account aanmaken', url.searchParams.get('fout'))));
