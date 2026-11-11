@@ -207,6 +207,27 @@ CREATE TABLE IF NOT EXISTS opfrissingen (
   bijgewerkt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS opfrissingen_site_dag_idx ON opfrissingen(site_id, dag);
+-- Stap 11: wachtrij voor het schrijven. open_sleutel is gevuld zolang de taak open is (wacht of bezig) en
+-- UNIQUE, zodat dezelfde taak (site, soort, sleutel) nooit twee keer tegelijk in de rij staat.
+CREATE TABLE IF NOT EXISTS taken (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  soort TEXT NOT NULL,
+  sleutel TEXT NOT NULL,
+  open_sleutel TEXT NULL UNIQUE,
+  invoer TEXT NOT NULL,
+  status TEXT NOT NULL,
+  melding TEXT NULL,
+  wijziging_id TEXT NULL,
+  proces TEXT NULL,
+  aangemaakt TEXT NOT NULL,
+  gestart TEXT NULL,
+  klaar TEXT NULL,
+  bijgewerkt TEXT NULL
+);
+CREATE INDEX IF NOT EXISTS taken_status_idx ON taken(status, aangemaakt);
+CREATE INDEX IF NOT EXISTS taken_account_idx ON taken(account_id, aangemaakt);
 -- Stap 10: verstuurde maandrapporten. UNIQUE (account_id, maand) is de claim tegen dubbele mails.
 CREATE TABLE IF NOT EXISTS rapporten (
   id TEXT PRIMARY KEY,
@@ -344,7 +365,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['rapporten', 'opfrissingen', 'refresh_instellingen', 'gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['taken', 'rapporten', 'opfrissingen', 'refresh_instellingen', 'gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

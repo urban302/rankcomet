@@ -3,6 +3,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { nieuweDb, startApp, registreerEnLogin, registreerBevestigd, post, nepInternet, nepPlugin, koppelSite, TEST_ENV } from './helpers.js';
 import * as wijz from '../src/wijzigingen.js';
+import * as wr from '../src/wachtrij.js';
 import * as sites from '../src/sites.js';
 import { schrijfArtikel } from '../src/pijplijn.js';
 import { beoordeel, WOORDFILTER } from '../src/kwaliteit.js';
@@ -188,10 +189,20 @@ test('via de app: profiel invullen en een artikel laten schrijven', async () => 
     assert.match(await (await fetch(eigen.basis + `/sites/${site.id}/profiel`, { headers: { cookie: c } })).text(), /value="Dakwerken De Vries"/);
     const r = await post(eigen.basis, `/sites/${site.id}/artikel`, { zoekwoord: 'dakisolatie subsidie' }, c);
     assert.equal(r.status, 303);
-    const pad = new URL(r.headers.get('location'), eigen.basis).pathname;
-    assert.match(pad, /^\/wijzigingen\//);
+    // Stap 11: het schrijven gaat via de wachtrij. De klant ziet "we zijn bezig", de werker doet het werk, dan een mail.
+    const terug = new URL(r.headers.get('location'), eigen.basis);
+    assert.equal(terug.pathname, `/sites/${site.id}/artikel`);
+    let html = await (await fetch(eigen.basis + terug.pathname + terug.search, { headers: { cookie: c } })).text();
+    assert.match(html, /We zijn bezig met een artikel over &quot;dakisolatie subsidie&quot;/); assert.match(html, /staat in de rij/);
+    assert.match(await (await fetch(eigen.basis + '/dashboard', { headers: { cookie: c } })).text(), /Rankcomet is bezig/);
+    const taak = await wr.verwerkEen(db, eigen.server.ctx);
+    assert.equal(taak.status, 'klaar');
+    const mail = eigen.mailer.mails.find((x) => x.aan === email && /Klaar: artikel/.test(x.onderwerp));
+    assert.ok(mail, 'mail als het klaar is'); assert.match(mail.tekst, new RegExp(`/wijzigingen/${taak.wijzigingId}`));
+    const pad = `/wijzigingen/${taak.wijzigingId}`;
     const detail = await (await fetch(eigen.basis + pad, { headers: { cookie: c } })).text();
     assert.match(detail, /wacht op jou/); assert.match(detail, /kwaliteitsscore/);
+    assert.doesNotMatch(await (await fetch(eigen.basis + '/dashboard', { headers: { cookie: c } })).text(), /Rankcomet is bezig/);
     assert.match(await (await fetch(eigen.basis + `/sites/${site.id}/artikel`, { headers: { cookie: c } })).text(), /dakisolatie subsidie · voorstel klaar · score \d+/);
   } finally { await eigen.sluit(); }
 });

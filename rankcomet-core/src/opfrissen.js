@@ -85,6 +85,12 @@ export async function kandidaten(db, ctx, account, siteId, tijd = new Date()) {
 
 // Een opfrisvoorstel maken voor één pagina. Daggrens per site (pakketten.json); mislukt telt ook (A69).
 export async function maakVoorstel(db, ctx, account, siteId, { doelId }, tijd = new Date()) {
+  const { id, kandidaat } = await bereidOpfrissingVoor(db, ctx, account, siteId, { doelId }, tijd);
+  return schrijfOpfrissing(db, ctx, account, { siteId, opfrissingId: id, kandidaat });
+}
+
+// Stap 11: controles en de reservering (daggrens) direct in het verzoek; het schrijven zelf in de wachtrij.
+export async function bereidOpfrissingVoor(db, ctx, account, siteId, { doelId }, tijd = new Date()) {
   const site = await eigenSite(db, account.id, siteId);
   const profiel = await haalProfiel(db, account.id, siteId);
   if (!profiel) throw new Fout('Vul eerst het siteprofiel in (bedrijf, diensten, plaats).', 400, { profiel: siteId });
@@ -98,7 +104,15 @@ export async function maakVoorstel(db, ctx, account, siteId, { doelId }, tijd = 
     await tx.query('INSERT INTO opfrissingen (id, account_id, site_id, doel_type, doel_id, url, zoekwoord, reden, status, positie_voor, klikken_voor, dag, aangemaakt, bijgewerkt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)',
       [id, account.id, siteId, kandidaat.doelType, kandidaat.doelId, kandidaat.url, kandidaat.zoekwoord, kandidaat.redenen.join('; '), 'bezig', kandidaat.positieVoor, kandidaat.klikkenVoor, dag, nu()]);
   });
+  return { id, kandidaat: { doelType: kandidaat.doelType, doelId: kandidaat.doelId, url: kandidaat.url, titel: kandidaat.titel, zoekwoord: kandidaat.zoekwoord, redenen: kandidaat.redenen, leeftijdDagen: kandidaat.leeftijdDagen } };
+}
+
+export async function schrijfOpfrissing(db, ctx, account, { siteId, opfrissingId: id, kandidaat }) {
+  const rij = (await db.query("SELECT id FROM opfrissingen WHERE id = $1 AND account_id = $2 AND site_id = $3 AND status = 'bezig'", [id, account.id, siteId])).rows[0];
+  if (!rij) throw new Fout('Deze opfrisbeurt is niet meer gereserveerd.', 409);
   try {
+    const profiel = await haalProfiel(db, account.id, siteId);
+    if (!profiel) throw new Fout('Vul eerst het siteprofiel in (bedrijf, diensten, plaats).', 400, { profiel: siteId });
     const { wp } = await clientVoorSite(db, ctx, account.id, siteId);
     const huidig = (await wp.haalDoel(kandidaat.doelType, kandidaat.doelId)).velden || {};
     const paginas = ((await wp.paginas()).paginas || []).filter((p) => p && typeof p.url === 'string' && typeof p.titel === 'string' && String(p.id) !== kandidaat.doelId).slice(0, 200);

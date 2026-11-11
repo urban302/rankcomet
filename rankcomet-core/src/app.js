@@ -12,7 +12,8 @@ import { maakCheckout, verwerkWebhook } from './stripe.js';
 import { maakBegrenzer, STANDAARD_GRENZEN } from './grens.js';
 import { verificatieMail, herstelMail } from './mail.js';
 import * as wijz from './wijzigingen.js';
-import { schrijfArtikel } from './pijplijn.js';
+import { bereidArtikelVoor } from './pijplijn.js';
+import * as wr from './wachtrij.js';
 import * as zw from './zoekwoorden.js';
 import * as pos from './posities.js';
 import * as gsc from './gsc.js';
@@ -52,7 +53,7 @@ const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new R
 
 export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
-  const ctx = { ophalen, model, dataforseo, google, logger, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
+  const ctx = { ophalen, model, dataforseo, google, logger, mailer, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
   const begrenzer = maakBegrenzer(grenzen);
   // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
   // laatste adres uit X-Forwarded-For (dat zet onze eigen proxy). Zonder die instelling negeren we de header,
@@ -176,10 +177,10 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
       return stuur(res, ok ? 200 : 503, pagina('E-mailadres bevestigen', ok ? '<p>We hebben je een nieuwe mail gestuurd. Klik op de link in die mail.</p>' : '<p role="alert">Het versturen van de mail lukte niet. Probeer het later opnieuw.</p>', account));
     }
     if (m === 'GET' && pad === '/dashboard') {
-      const [lijst, alles, overzicht, posities, searchConsole] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account), pos.samenvatting(db, account.id), gsc.samenvatting(db, account.id)]);
+      const [lijst, alles, overzicht, posities, searchConsole, taken] = await Promise.all([sites.lijstSites(db, account.id), wijz.lijst(db, account.id), artikelenOverzicht(db, account), pos.samenvatting(db, account.id), gsc.samenvatting(db, account.id), wr.lijst(db, account.id)]);
       const pk = laadPakketten().pakketten[account.pakket];
       const melding = url.searchParams.get('m');
-      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, posities, searchConsole, melding }), account));
+      return stuur(res, 200, pagina('Dashboard', dashboard({ account, pk, sites: lijst, wijzigingen: alles, overzicht, posities, searchConsole, melding, taken }), account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
     if (m === 'GET' && pad.startsWith('/api/sites/')) {
@@ -295,7 +296,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
       const toon = async (status = 200, fout = null, extra = '') => {
         let lijst = [], drempels = await opf.instellingen(db, account.id, siteId);
         try { lijst = await opf.kandidaten(db, ctx, account, siteId); } catch (e) { if (!(e instanceof acc.Fout)) throw e; fout = fout || e.message; }
-        return stuur(res, status, pagina(`Opfrissen: ${site.domein}`, opfrissenPagina(site, lijst, drempels, await opf.effect(db, account.id, siteId), url.searchParams.get('m'), fout, extra), account));
+        return stuur(res, status, pagina(`Opfrissen: ${site.domein}`, opfrissenPagina(site, lijst, drempels, await opf.effect(db, account.id, siteId), url.searchParams.get('m'), fout, extra, await wr.lijst(db, account.id, { siteId })), account));
       };
       if (m === 'GET' && !actie) return toon();
       if (m === 'POST' && actie) {
@@ -305,8 +306,9 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
           const wacht = begrenzer.wachttijd([['artikel_account', account.id]]);
           if (wacht) return teVeel(res, 'opfrissen', wacht, `Opfrissen: ${site.domein}`);
           begrenzer.tel([['artikel_account', account.id]]);
-          const r = await opf.maakVoorstel(db, ctx, account, siteId, { doelId: f.doel_id });
-          return naar(res, `/wijzigingen/${r.wijziging.id}`);
+          const v = await opf.bereidOpfrissingVoor(db, ctx, account, siteId, { doelId: f.doel_id });
+          await wr.plaatsTaak(db, { accountId: account.id, siteId, soort: 'opfrissen', sleutel: v.kandidaat.url.replace(/^https?:\/\/[^/]+/, '') || '/', invoer: { opfrissingId: v.id, kandidaat: v.kandidaat } });
+          return naar(res, `/sites/${siteId}/opfrissen?m=${encodeURIComponent('We zijn bezig met het opfrisvoorstel. Dit duurt ongeveer een minuut. Je krijgt een mail als het klaar is.')}`);
         } catch (e) {
           if (!(e instanceof acc.Fout)) throw e;
           const extra = e.profiel ? `<p><a href="/sites/${esc(siteId)}/profiel">Vul het siteprofiel in</a></p>` : e.bevindingen ? `<ul>${e.bevindingen.map((b) => `<li>${esc(b.tekst)}</li>`).join('')}</ul>` : '';
@@ -358,19 +360,21 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
       }
       if (wat === 'artikel') {
         const artikelen = await lijstArtikelen(db, account.id, siteId);
-        if (m === 'GET') return stuur(res, 200, pagina(`Artikel voor ${site.domein}`, artikelForm(site, artikelen, url.searchParams.get('zoekwoord')), account));
+        if (m === 'GET') return stuur(res, 200, pagina(`Artikel voor ${site.domein}`, artikelForm(site, artikelen, url.searchParams.get('zoekwoord'), await wr.lijst(db, account.id, { siteId }), url.searchParams.get('m')), account));
         if (m === 'POST') {
           const wacht = begrenzer.wachttijd([['artikel_account', account.id]]);
           if (wacht) return teVeel(res, 'artikel', wacht, `Artikel voor ${site.domein}`);
           begrenzer.tel([['artikel_account', account.id]]);
           const f = formulier(await leesBody(req));
           try {
-            const r = await schrijfArtikel(db, ctx, account, siteId, { zoekwoord: f.zoekwoord });
-            return naar(res, `/wijzigingen/${r.wijziging.id}`);
+            // Stap 11: controles en reservering nu, het schrijven in de wachtrij; een mail als het klaar is.
+            const v = await bereidArtikelVoor(db, ctx, account, siteId, { zoekwoord: f.zoekwoord });
+            await wr.plaatsTaak(db, { accountId: account.id, siteId, soort: 'artikel', sleutel: `${v.artikel.id}`, invoer: { artikelId: v.artikel.id, zoekwoord: v.zoekwoord } });
+            return naar(res, `/sites/${siteId}/artikel?m=${encodeURIComponent(`We zijn bezig met een artikel over "${v.zoekwoord}". Dit duurt ongeveer een minuut. Je krijgt een mail als het klaar is.`)}`);
           } catch (e) {
             if (!(e instanceof acc.Fout)) throw e;
             const extra = e.profiel ? `<p><a href="/sites/${esc(siteId)}/profiel">Vul het siteprofiel in</a></p>` : e.bevindingen ? `<ul>${e.bevindingen.map((b) => `<li>${esc(b.tekst)}</li>`).join('')}</ul>` : '';
-            return stuur(res, e.status, pagina(`Artikel voor ${site.domein}`, `<p role="alert">${esc(e.message)}</p>${extra}${artikelForm(site, await lijstArtikelen(db, account.id, siteId))}`, account));
+            return stuur(res, e.status, pagina(`Artikel voor ${site.domein}`, `<p role="alert">${esc(e.message)}</p>${extra}${artikelForm(site, await lijstArtikelen(db, account.id, siteId), '', await wr.lijst(db, account.id, { siteId }))}`, account));
           }
         }
       }
@@ -421,13 +425,15 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
     return stuur(res, 404, pagina('Niet gevonden', '<p>Deze pagina bestaat niet.</p>', account));
   }
 
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     afhandelen(req, res).catch(async (e) => {
       const status = e instanceof acc.Fout ? e.status : 500;
       try { await logger.log('fout', `verzoek mislukt status=${status} ${e instanceof acc.Fout ? '' : e.name}`); } catch {}
       if (!res.headersSent) stuur(res, status, pagina('Er ging iets mis', `<p>${esc(e instanceof acc.Fout ? e.message : 'Er ging iets mis. Probeer het later opnieuw.')}</p>`));
     });
   });
+  server.ctx = ctx; // dezelfde context voor de werker van de wachtrij (stap 11)
+  return server;
 }
 
 function inlogForm(actie, knop, fout) {
@@ -454,7 +460,9 @@ function pluginPagina(site, info) {
 const DOEL_TEKST = { post: 'Bericht', pagina: 'Pagina', product: 'Product', productcategorie: 'Productcategorie' };
 
 // Het dashboard (stap 5): bovenaan wat op de klant wacht, daarna deze maand, wat live staat, wat er over is, de sites.
-function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities = [], searchConsole = [], melding }) {
+function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities = [], searchConsole = [], melding, taken = [] }) {
+  const bezig = taken.filter((t) => t.open);
+  const kaartBezig = bezig.length ? `<section class="kaart" aria-labelledby="bezig"><h2 id="bezig">Rankcomet is bezig</h2><ul class="lijst">${bezig.map((t) => `<li>${esc(taakTekst(t))}</li>`).join('')}</ul><p class="stil">Je krijgt een mail zodra het klaar is. Daarna wacht het op jouw akkoord.</p></section>` : '';
   const maand = huidigeMaand();
   const open = wijzigingen.filter((w) => w.status === 'voorstel');
   const dezeMaand = wijzigingen.filter((w) => w.maand === maand);
@@ -486,7 +494,7 @@ function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities
 
   const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/search-console">Search Console</a><a href="/sites/${esc(s.id)}/opfrissen">Opfrissen</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
 
-  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartPosities}${kaartGsc}${kaartLive}${kaartOver}${kaartSites}`;
+  return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartBezig}${kaartWacht}${kaartMaand}${kaartPosities}${kaartGsc}${kaartLive}${kaartOver}${kaartSites}`;
 }
 const STATUS_TEKST = { voorstel: 'wacht op jou', goedgekeurd: 'wordt verwerkt', gepubliceerd: 'staat op je site', afgewezen: 'niet gedaan', teruggezet: 'teruggezet', mislukt: 'niet gelukt' };
 const doelTekst = (w) => `${DOEL_TEKST[w.doel_type] || w.doel_type}${w.doel_id ? ` ${w.doel_id}` : ' (nieuw)'}`;
@@ -508,9 +516,19 @@ function profielForm(site, p, melding, fout) {
 }
 
 const ARTIKEL_STATUS = { gereserveerd: 'bezig', concept: 'voorstel klaar', teruggeboekt: 'niet gelukt' };
-function artikelForm(site, artikelen, zoekwoord = '') {
+function taakTekst(t) {
+  const wat = t.soort === 'opfrissen' ? `het opfrisvoorstel voor ${t.onderwerp}` : `een artikel over "${t.onderwerp}"`;
+  if (t.status === 'wacht') return `${t.domein}: ${wat} staat in de rij.`;
+  if (t.status === 'bezig') return `${t.domein}: we zijn bezig met ${wat}.`;
+  if (t.status === 'mislukt') return `${t.domein}: ${wat} is niet gelukt. ${t.melding || ''}`.trim();
+  return `${t.domein}: ${wat} is klaar.`;
+}
+
+function artikelForm(site, artikelen, zoekwoord = '', taken = [], melding = null) {
+  const open = taken.filter((t) => t.open);
+  const bezig = `${melding ? `<p role="status">${esc(melding)}</p>` : ''}${open.length ? `<section class="kaart"><h2>Rankcomet is bezig</h2><ul class="lijst">${open.map((t) => `<li>${esc(taakTekst(t))}</li>`).join('')}</ul><p class="stil">Je krijgt een mail zodra het klaar is.</p></section>` : ''}`;
   const rijen = artikelen.map((a) => `<li>${esc(a.zoekwoord || '')} · ${esc(ARTIKEL_STATUS[a.status] || a.status)}${a.score != null ? ` · score ${esc(a.score)}` : ''}${a.wijziging_id ? ` · <a href="/wijzigingen/${esc(a.wijziging_id)}">bekijk</a>` : ''}${a.status === 'teruggeboekt' && a.melding ? ` · ${esc(a.melding)}` : ''}</li>`).join('');
-  return `<p>Vul een zoekwoord in. Rankcomet kiest een onderwerp, schrijft een artikel met interne links en meta, controleert het en zet het als voorstel klaar. Jij keurt het goed voor het op je site komt. Dit duurt ongeveer een minuut.</p><form method="post" action="/sites/${esc(site.id)}/artikel"><label>Zoekwoord <input name="zoekwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie kosten" value="${esc(zoekwoord || '')}"></label><button>Schrijf een artikel</button></form><h2>Eerdere artikelen</h2><ul>${rijen || '<li>Nog geen.</li>'}</ul>`;
+  return `${bezig}<p>Vul een zoekwoord in. Rankcomet kiest een onderwerp, schrijft een artikel met interne links en meta, controleert het en zet het als voorstel klaar. Jij keurt het goed voor het op je site komt. Dit duurt ongeveer een minuut; je krijgt een mail als het klaar is.</p><form method="post" action="/sites/${esc(site.id)}/artikel"><label>Zoekwoord <input name="zoekwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie kosten" value="${esc(zoekwoord || '')}"></label><button>Schrijf een artikel</button></form><h2>Eerdere artikelen</h2><ul>${rijen || '<li>Nog geen.</li>'}</ul>`;
 }
 
 const INTENTIE_TEKST = { informatie: 'wil iets weten', navigatie: 'zoekt een site', commercieel: 'vergelijkt', kopen: 'wil kopen', onbekend: '' };
@@ -539,8 +557,9 @@ function searchConsolePagina(site, k, properties, beschikbaar, melding, fout) {
   return `${kop}<section class="kaart"><h2>Gekoppeld: ${esc(k.property)}</h2><p>${k.periode_start ? `Cijfers van ${esc(k.periode_start)} tot ${esc(k.periode_eind)}: ${k.totaal.klikken} klikken en ${k.totaal.vertoningen} vertoningen. Rankcomet haalt ze elke dag op.` : 'Nog geen cijfers opgehaald.'}</p><form method="post" action="/sites/${esc(site.id)}/search-console/ververs"><button class="rustig">Nu ophalen</button></form></section><section class="kaart"><h2>Pagina's</h2>${rijen ? `<ul class="lijst">${rijen}</ul>` : '<p class="stil">Nog geen cijfers. Google heeft voor deze periode niets voor deze property, of de site is nieuw.</p>'}</section><section class="kaart"><h2>Koppeling verbreken</h2><p>Dan trekken we de toegang bij Google in en verwijderen we alle Google-gegevens van deze site.</p><form method="post" action="/sites/${esc(site.id)}/search-console/verbreken"><button class="rustig">Verbreken</button></form></section>`;
 }
 
-function opfrissenPagina(site, lijst, d, effect, melding, fout, extra = '') {
-  const kop = `${fout ? `<p role="alert">${esc(fout)}</p>${extra}` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}`;
+function opfrissenPagina(site, lijst, d, effect, melding, fout, extra = '', taken = []) {
+  const open = taken.filter((t) => t.open && t.soort === 'opfrissen');
+  const kop = `${fout ? `<p role="alert">${esc(fout)}</p>${extra}` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${open.length ? `<section class="kaart"><h2>Rankcomet is bezig</h2><ul class="lijst">${open.map((t) => `<li>${esc(taakTekst(t))}</li>`).join('')}</ul><p class="stil">Je krijgt een mail zodra het klaar is.</p></section>` : ''}`;
   const kandidaat = (k) => `<li><span class="sitenaam">${esc(k.titel)}</span> <span class="stil">· ${esc(k.url.replace(/^https?:\/\/[^/]+/, '') || '/')} · laatst gewijzigd ${k.leeftijdDagen} dagen geleden</span><br>${esc(k.redenen.join('; '))}${k.alVoorgesteld ? ' <span class="stil">· al een voorstel gemaakt</span>' : ` <form method="post" action="/sites/${esc(site.id)}/opfrissen/voorstel"><input type="hidden" name="doel_id" value="${esc(k.doelId)}"><button class="rustig">Opfrisvoorstel maken</button></form>`}</li>`;
   const STATUS = { bezig: 'bezig', voorstel: 'voorstel gemaakt', mislukt: 'niet gelukt' };
   const rij = (e) => `<li><span class="sitenaam">${esc(e.url.replace(/^https?:\/\/[^/]+/, '') || '/')}</span> <span class="stil">· ${esc(e.aangemaakt.slice(0, 10))} · ${esc(e.voorstel_status === 'gepubliceerd' ? 'staat op je site' : e.voorstel_status === 'voorstel' ? 'wacht op jou' : e.voorstel_status === 'afgewezen' ? 'niet gedaan' : STATUS[e.status] || e.status)}</span>${e.voorstel_status === 'gepubliceerd' ? `<br>${e.positie_voor != null ? `positie ${e.positie_voor} toen, ${e.positieNu != null ? e.positieNu : 'niet in de top 20'} nu` : ''}${e.klikken_voor != null ? `${e.positie_voor != null ? ' · ' : ''}${e.klikken_voor} klikken toen, ${e.klikkenNu != null ? e.klikkenNu : 'nog geen cijfers'} nu` : ''}` : ''}${e.wijziging_id ? ` · <a href="/wijzigingen/${esc(e.wijziging_id)}">bekijk</a>` : ''}${e.status === 'mislukt' && e.melding ? `<br><small>${esc(e.melding)}</small>` : ''}</li>`;

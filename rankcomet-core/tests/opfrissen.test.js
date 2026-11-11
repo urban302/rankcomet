@@ -7,6 +7,7 @@ import * as zw from '../src/zoekwoorden.js';
 import * as pos from '../src/posities.js';
 import * as gsc from '../src/gsc.js';
 import * as wijz from '../src/wijzigingen.js';
+import * as wr from '../src/wachtrij.js';
 import * as sites from '../src/sites.js';
 import { laadSleutel } from '../src/geheimen.js';
 
@@ -162,7 +163,13 @@ test('via de app: lijst met redenen, drempels opslaan, opfrisvoorstel maken en o
     assert.match(html, /verdienen \(0\)/); assert.match(html, /value="365"/);
     await post(eigen.basis, `/sites/${site.id}/opfrissen/instellingen`, { min_leeftijd_dagen: '180', positie_daling: '3', klik_daling_pct: '30' }, c);
     const r = await post(eigen.basis, `/sites/${site.id}/opfrissen/voorstel`, { doel_id: '3' }, c);
-    assert.equal(r.status, 303); assert.match(r.headers.get('location'), /^\/wijzigingen\//);
+    assert.equal(r.status, 303); assert.match(r.headers.get('location'), /^\/sites\/.*\/opfrissen\?m=/);
+    // Stap 11: via de wachtrij. Eerst "bezig" op de pagina, dan doet de werker het werk en komt er een mail.
+    html = await (await fetch(eigen.basis + `/sites/${site.id}/opfrissen`, { headers: { cookie: c } })).text();
+    assert.match(html, /Rankcomet is bezig/); assert.match(html, /het opfrisvoorstel voor \/oud\/ staat in de rij/);
+    const taak = await wr.verwerkEen(db, eigen.server.ctx);
+    assert.equal(taak.status, 'klaar');
+    assert.ok(eigen.mailer.mails.find((x) => x.aan === email && /Klaar: opfrisvoorstel/.test(x.onderwerp)), 'mail als het klaar is');
     assert.match(await (await fetch(eigen.basis + '/dashboard', { headers: { cookie: c } })).text(), /Opfrissen: voor &quot;dak kosten&quot; van positie 2 naar 12/);
     html = await (await fetch(eigen.basis + `/sites/${site.id}/opfrissen`, { headers: { cookie: c } })).text();
     assert.match(html, /al een voorstel gemaakt/); assert.match(html, /\/oud\/<\/span> <span class="stil">· \d{4}-\d{2}-\d{2} · wacht op jou/);
