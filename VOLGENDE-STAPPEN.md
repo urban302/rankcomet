@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 5 klaar en de teksten voor de Search Console-aanvraag staan klaar, 93/93 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 6 klaar en de teksten voor de Search Console-aanvraag staan klaar, 99/99 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -81,8 +81,23 @@ Gedaan: dashboard met "Wacht op jou" (Goedkeuren en Niet doen per voorstel), dez
 - De oude teksten in de u-vorm naar de je-vorm (A36).
 - Stijl van de Sevenai-app v2: schermafdruk of kleuren en letters (A54).
 
+## Blok 4 (akkoord Erwin 11-11): zoekwoorden, rank tracking, Search Console
+
+### Stap 6: zoekwoorden per site, KLAAR
+Gedaan: DataForSEO-client in gewoon JavaScript (`rankcomet-core/src/dataforseo.js`, overgezet uit `vendor-openseo/`), zoekwoordonderzoek met volume, moeilijkheid en intentie, bewaren per site, volgen met de pakketlimiet (A7: 100), eigen zoekwoorden met Google Ads-volume, daggrens op onderzoeken, pagina `/sites/<id>/zoekwoorden` met de link naar "Artikel laten schrijven". Aannames A57 tot A59. Nog nodig: een DataForSEO-login (RC_DATAFORSEO_LOGIN en RC_DATAFORSEO_WACHTWOORD) om echt te draaien en de kosten per onderzoek te meten.
+
+### Stap 7: rank tracking
+- Dagelijks de positie van elk gevolgd zoekwoord ophalen via DataForSEO SERP (Google, NL of BE, nl), met de URL die rankt.
+- Opslaan per dag; op de zoekwoordenpagina en het dashboard de positie en het verschil met vorige week tonen.
+- Een vaste planning (één keer per dag per site) met een harde grens op het aantal aanroepen; een gemiste dag inhalen zonder dubbel te betalen.
+- Test: account A ziet niets van account B.
+
+### Stap 8: Search Console-koppeling
+- OAuth met Google (scope `webmasters.readonly`), tokens versleuteld met AES-GCM (`src/geheimen.js`), property kiezen.
+- Klikken, vertoningen en posities per pagina ophalen en tonen; de koppeling verbreken verwijdert alles.
+- Kan pas echt getest worden met een Google-client (zie `docs/google-search-console-aanvraag.md`); tot die tijd met een nep-Google.
+
 ## Daarna (volgorde uit de spec)
-- Blok 4: Search Console-koppeling (na goedkeuring door Google) en rank tracking via DataForSEO; de adapter die de zoekwoordcode uit `vendor-openseo/` omzet naar gewoon JavaScript.
 - Contentrefresh (positie, klikken, leeftijd) en het maandrapport.
 - Bèta NL, januari 2027.
 

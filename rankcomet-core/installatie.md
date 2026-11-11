@@ -32,6 +32,8 @@ Productie: `RC_DB=pg RC_DATABASE_URL=... (overige env) node src/server.js`. De a
 | RC_AZURE_OPENAI_DEPLOYMENT | deploymentnaam |
 | RC_AZURE_OPENAI_KEY | API-sleutel |
 | RC_AZURE_OPENAI_API_VERSIE | optioneel, standaard 2024-10-21 |
+| RC_DATAFORSEO_LOGIN | DataForSEO API-login (stap 6; de app start niet zonder) |
+| RC_DATAFORSEO_WACHTWOORD | DataForSEO API-wachtwoord |
 | RC_LOG_BEWAAR_DAGEN | optioneel, standaard 90 |
 | RC_VERTROUW_PROXY | optioneel; `1` = IP-adres voor de rate limiting uit X-Forwarded-For halen (alleen achter onze eigen reverse proxy) |
 | RC_CONFIG_DIR | optioneel, map met pakketten.json en merk.json |
@@ -95,3 +97,6 @@ Productie: `RC_DB=pg RC_DATABASE_URL=... (overige env) node src/server.js`. De a
 - [A54] (stap 5) Strikte CSP op elke pagina: `default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Geen script-src: de app gebruikt geen JavaScript in de browser. Eén stylesheet uit `rankcomet-core/public/stijl.css`, door de app zelf geserveerd op `/stijl.css`. Systeemletters (system-ui), dus geen webfont en niets om te hosten. De stijl "Sevenai-app v2" is niet in de repo beschikbaar; gekozen: rustig, groot, één accentkleur, kaarten, knoppen van minstens 48 px.
 - [A55] (stap 5) Goedkeuren op het dashboard: een nieuw onderdeel komt als concept in WordPress, een bestaand onderdeel krijgt de nieuwe tekst live. Dat staat bij elk voorstel. Wie het anders wil, kiest dat op de detailpagina. Hangt samen met A46.
 - [A56] (stap 5) De layouttest op 390 px en 1440 px gebruikt Playwright als dat op de machine staat (niet in de repo, geen nieuw pakket) en wordt anders overgeslagen. Op de CI-runner draait hij dus niet; lokaal wel.
+- [A57] (stap 6) DataForSEO-client in `src/dataforseo.js`, overgezet uit `vendor-openseo/src/server/lib/dataforseo/` (core, envelope, labs, google-ads). Alleen Nederland (2528) en België (2056), taal nl. Statuscodes zoals OpenSEO ze behandelt: 20000 goed, 40501 "geen resultaten" is leeg maar geen fout, 40101/40103/50401/50402 storing bij DataForSEO, 20100/40601/40602 nog bezig. Twee herhalingen bij 5xx, time-out 60 s. Alleen pad, status en kosten in de log; nooit de zoekwoorden van de klant of de inloggegevens. DataForSEO is een verwerker buiten de EU (spec 5.10): alleen zoekwoorden gaan erheen, geen persoonsgegevens.
+- [A58] (stap 6) Per site hooguit 500 niet-gevolgde ideeën bewaard; oudere worden vervangen. Gevolgde zoekwoorden blijven altijd staan. Eén zoekwoord per site (UNIQUE); een nieuw onderzoek werkt bestaande rijen bij en laat de volgstatus staan.
+- [A59] (stap 6) Daggrens op onderzoeken: `onderzoeken_per_site_per_dag` in `config/pakketten.json` (Solo 3, Pro 5, Bureau-proef 5), omdat elk onderzoek geld kost. Eigen zoekwoorden toevoegen (Google Ads-volume) valt niet onder die grens maar wel onder de rate limit van 30 zoekwoordacties per account per uur. Kosten per onderzoek staan in `onderzoeken.kosten_usd`.

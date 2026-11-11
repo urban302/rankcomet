@@ -4,6 +4,7 @@ import { maakApp } from './app.js';
 import { maakOphaler } from './ophalen.js';
 import { maakLogger } from './log.js';
 import { controleerAzureEnv, maakModel } from './azure.js';
+import { controleerDataforseoEnv, maakDataforseo } from './dataforseo.js';
 import { laadSleutel } from './geheimen.js';
 import { controleerStripeEnv } from './stripe.js';
 import { bewaartermijnDagen, laadPakketten } from './config.js';
@@ -14,6 +15,7 @@ export async function startControles(env = process.env) {
   controleerAzureEnv(env);
   laadSleutel(env);
   controleerStripeEnv(env);
+  controleerDataforseoEnv(env);
   laadPakketten();
   bewaartermijnDagen(env);
 }
@@ -27,7 +29,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // [A34] Nog geen echte mailer (SMTP of mailprovider in de EU volgt). Tot dan mislukt elke mail; de app
   // logt dat en de klant kan het later opnieuw proberen.
   const mailer = { stuur: async () => { throw new Error('Mailer nog niet gekoppeld (R3)'); } };
-  const app = maakApp({ db, stripe, mailer, ophalen: maakOphaler(), model: maakModel(), logger });
+  const app = maakApp({ db, stripe, mailer, ophalen: maakOphaler(), model: maakModel(), dataforseo: maakDataforseo(process.env, globalThis.fetch, logger), logger });
   const poort = Number(process.env.RC_POORT || 3100);
   app.listen(poort, '127.0.0.1', () => process.stdout.write(`Rankcomet luistert op 127.0.0.1:${poort}\n`));
   setInterval(() => logger.ruimOp(bewaartermijnDagen()).catch(() => {}), 6 * 3600 * 1000).unref();

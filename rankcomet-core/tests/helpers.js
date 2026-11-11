@@ -7,6 +7,7 @@ import { maakOphaler } from '../src/ophalen.js';
 import { STANDAARD_GRENZEN } from '../src/grens.js';
 import { handtekening, PLUGIN_PAD } from '../src/wordpress.js';
 import { VELDEN } from '../src/velden.js';
+import { maakDataforseo } from '../src/dataforseo.js';
 import { randomBytes } from 'node:crypto';
 
 export const TEST_ENV = {
@@ -16,6 +17,7 @@ export const TEST_ENV = {
   RC_GEHEIMEN_SLEUTEL: randomBytes(32).toString('base64'),
   RC_AZURE_OPENAI_ENDPOINT: 'https://rc-test.openai.azure.com', RC_AZURE_OPENAI_REGIO: 'swedencentral',
   RC_AZURE_OPENAI_DEPLOYMENT_TYPE: 'DataZoneStandard', RC_AZURE_OPENAI_DEPLOYMENT: 'gpt-test', RC_AZURE_OPENAI_KEY: 'nep-azure-sleutel',
+  RC_DATAFORSEO_LOGIN: 'nep-login', RC_DATAFORSEO_WACHTWOORD: 'nep-wachtwoord',
 };
 
 export async function nieuweDb() {
@@ -98,6 +100,24 @@ export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast
   return { doelen, toegepast, oproepen, nonces, paginas };
 }
 
+// Nep-DataForSEO: een nep-fetch die DataForSEO-antwoorden nabootst, door de echte client (dataforseo.js).
+// `ideeen(startwoord)` en `volumes(zoekwoorden)` leveren de items; `antwoord` kan een heel antwoord afdwingen.
+export function nepDataforseo({ ideeen = () => [], volumes = () => ({}), kosten = 0.0101 } = {}) {
+  const dfs = { aanroepen: [], antwoord: null, httpStatus: 200 };
+  const fetchFn = async (url, init) => {
+    const taak = JSON.parse(init.body)[0];
+    const pad = new URL(url).pathname;
+    dfs.aanroepen.push({ pad, taak, auth: init.headers.authorization });
+    if (dfs.httpStatus !== 200) return { status: dfs.httpStatus, ok: false, json: async () => ({}) };
+    const body = dfs.antwoord ? dfs.antwoord(pad, taak) : pad.includes('keyword_ideas')
+      ? { status_code: 20000, tasks: [{ status_code: 20000, cost: kosten, result: [{ items: ideeen(taak.keywords[0], taak) }] }] }
+      : { status_code: 20000, tasks: [{ status_code: 20000, cost: kosten, result: volumes(taak.keywords, taak) }] };
+    return { status: 200, ok: true, json: async () => body };
+  };
+  dfs.client = maakDataforseo(TEST_ENV, fetchFn);
+  return dfs;
+}
+
 // Site toevoegen én koppelen via de echte flow: de koppelcode staat op de nep-homepage.
 export async function koppelSite(db, account, velden, internet = nepInternet()) {
   const { site } = await sites.voegSiteToe(db, account, velden);
@@ -107,13 +127,13 @@ export async function koppelSite(db, account, velden, internet = nepInternet()) 
   return site;
 }
 
-export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet(), model = null } = {}) {
+export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet(), model = null, dataforseo = nepDataforseo() } = {}) {
   const logger = maakLogger(db);
   const mailer = nepMailer();
-  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, model, logger, env, veiligeCookie: false, grenzen });
+  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, model, dataforseo: dataforseo.client, logger, env, veiligeCookie: false, grenzen });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const basis = `http://127.0.0.1:${server.address().port}`;
-  return { server, basis, stripe, mailer, internet, model, logger, sluit: () => new Promise((ok) => server.close(ok)) };
+  return { server, basis, stripe, mailer, internet, model, dataforseo, logger, sluit: () => new Promise((ok) => server.close(ok)) };
 }
 
 // Account met bevestigd e-mailadres, via de gewone servicefuncties.
