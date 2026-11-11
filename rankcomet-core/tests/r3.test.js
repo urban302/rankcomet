@@ -1,7 +1,7 @@
 // R3 (stap 1): wachtwoord vergeten, e-mailverificatie, rate limiting, artikelmaand in Nederlandse tijd.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { nieuweDb, startApp, registreerEnLogin, registreerBevestigd, post, linkUit, mockStripe, TEST_ENV } from './helpers.js';
+import { nieuweDb, startApp, registreerEnLogin, registreerBevestigd, post, linkUit, mockStripe, TEST_ENV, koppelSite } from './helpers.js';
 import * as acc from '../src/accounts.js';
 import * as sites from '../src/sites.js';
 import { reserveerArtikel } from '../src/artikelen.js';
@@ -150,7 +150,7 @@ test('X-Forwarded-For telt alleen met RC_VERTROUW_PROXY=1', async () => {
 
 test('A22: artikelmaand volgt de Nederlandse tijd, in winter- en zomertijd', async () => {
   const a = await registreerBevestigd(db, 'maand@test.invalid', WW, 'pro');
-  const s = (await sites.voegSiteToe(db, a, { domein: 'maand.test', platform: 'wordpress' })).site.id;
+  const s = (await koppelSite(db, a, { domein: 'maand.test', platform: 'wordpress' })).id;
   const maand = async (iso) => (await reserveerArtikel(db, a, s, new Date(iso))).maand;
   assert.equal(await maand('2026-10-31T22:59:59Z'), '2026-10'); // 23:59:59 wintertijd
   assert.equal(await maand('2026-10-31T23:30:00Z'), '2026-11'); // 00:30 op 1 november
@@ -162,7 +162,7 @@ test('A22: artikelmaand volgt de Nederlandse tijd, in winter- en zomertijd', asy
 
 test('A22: de limiet begint opnieuw om middernacht Nederlandse tijd, niet om middernacht UTC', async () => {
   const a = await registreerBevestigd(db, 'middernacht@test.invalid', WW, 'solo');
-  const s = (await sites.voegSiteToe(db, a, { domein: 'middernacht.test', platform: 'wordpress' })).site.id;
+  const s = (await koppelSite(db, a, { domein: 'middernacht.test', platform: 'wordpress' })).id;
   for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, new Date('2026-11-30T22:30:00Z')); // 23:30 op 30 november
   assert.equal((await reserveerArtikel(db, a, s, new Date('2026-11-30T22:45:00Z')).catch((e) => e)).status, 403);
   // 00:30 op 1 december in Nederland, terwijl het in UTC nog 30 november is.

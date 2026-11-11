@@ -31,7 +31,7 @@ function leesBody(req, max = 1024 * 1024) {
 const formulier = (t) => Object.fromEntries(new URLSearchParams(t));
 const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${naam}=([^;]+)`)); return m ? decodeURIComponent(m[1]) : null; };
 
-export function maakApp({ db, stripe, mailer, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
+export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
   const begrenzer = maakBegrenzer(grenzen);
   // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
@@ -156,7 +156,7 @@ export function maakApp({ db, stripe, mailer, logger, env = process.env, veilige
     if (m === 'GET' && pad === '/dashboard') {
       const lijst = await sites.lijstSites(db, account.id);
       const pk = laadPakketten().pakketten[account.pakket];
-      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
+      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)} · ${s.bevestigd ? 'gekoppeld' : `<a href="/sites/${esc(s.id)}/koppelen">nog koppelen</a>`}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
       return stuur(res, 200, pagina('Dashboard', `${account.geverifieerd ? '' : bevestigMelding()}<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
@@ -170,12 +170,35 @@ export function maakApp({ db, stripe, mailer, logger, env = process.env, veilige
       try {
         const r = await sites.voegSiteToe(db, account, f);
         if (r.wachtlijst) return stuur(res, 200, pagina('Op de wachtlijst', `<p>${esc(r.bericht)}</p>`, account));
-        return naar(res, '/dashboard');
+        return naar(res, `/sites/${r.site.id}/koppelen`);
       } catch (e) {
         if (!(e instanceof acc.Fout)) throw e;
         if (e.onbevestigd) return stuur(res, e.status, pagina('Site toevoegen', bevestigMelding(), account));
         const up = e.upgrade ? `<p><a href="/pakketten">Bekijk de pakketten en upgrade</a></p>` : '';
         return stuur(res, e.status, pagina('Site toevoegen', `<p role="alert">${esc(e.message)}</p>${up}${siteForm()}`, account));
+      }
+    }
+    // Stap 2: koppelcode tonen en controleren. Alleen voor een site van dit account (anders 404).
+    const koppel = pad.match(/^\/sites\/([^/]+)\/koppelen(\/controleer)?$/);
+    if (koppel) {
+      const siteId = koppel[1];
+      let info;
+      try { info = await sites.koppelcodeVoor(db, account.id, siteId); }
+      catch (e) { if (!(e instanceof acc.Fout)) throw e; return stuur(res, e.status, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account)); }
+      if (m === 'GET' && !koppel[2]) return stuur(res, 200, pagina(`${info.domein} koppelen`, koppelPagina(info, siteId), account));
+      if (m === 'POST' && koppel[2]) {
+        const wacht = begrenzer.wachttijd([['koppelcontrole_site', siteId]]);
+        if (wacht) return teVeel(res, 'koppelcontrole', wacht, `${info.domein} koppelen`);
+        begrenzer.tel([['koppelcontrole_site', siteId]]);
+        try {
+          await sites.controleerEigendom(db, account.id, siteId, ophalen);
+          await logger.log('info', `site gekoppeld account=${account.id} site=${siteId}`);
+          return stuur(res, 200, pagina('Site gekoppeld', `<p>Gelukt. ${esc(info.domein)} is nu gekoppeld aan je account.</p><p><a href="/dashboard">Naar je dashboard</a></p>`, account));
+        } catch (e) {
+          if (!(e instanceof acc.Fout)) throw e;
+          await logger.log('info', `koppelcontrole mislukt account=${account.id} site=${siteId} status=${e.status}${e.oorzaak ? ' oorzaak=' + e.oorzaak : ''}`);
+          return stuur(res, e.status, pagina(`${info.domein} koppelen`, koppelPagina(info, siteId, e.message), account));
+        }
       }
     }
     if (m === 'GET' && pad === '/pakketten') {
@@ -211,6 +234,10 @@ function vergetenForm() {
 
 function herstelForm(token, fout) {
   return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}<form method="post" action="/wachtwoord-herstellen"><input type="hidden" name="token" value="${esc(token)}"><label>Nieuw wachtwoord <input type="password" name="wachtwoord" required minlength="12" autocomplete="new-password"></label><button>Wachtwoord opslaan</button></form>`;
+}
+
+function koppelPagina(info, siteId, fout) {
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}<p>Laat zien dat ${esc(info.domein)} van jou is. Zet deze regel in de <code>&lt;head&gt;</code> van je homepage:</p><pre><code>${esc(info.metatag)}</code></pre><p>In WordPress kan dat met een plugin voor koptekst, of met de Rankcomet-plugin zodra die er is. Klik daarna op de knop.</p><form method="post" action="/sites/${esc(siteId)}/koppelen/controleer"><button>Controleer mijn site</button></form><p><a href="/dashboard">Later doen</a></p>`;
 }
 
 function bevestigMelding() {

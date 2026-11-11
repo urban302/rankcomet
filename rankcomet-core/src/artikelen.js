@@ -14,8 +14,10 @@ export async function reserveerArtikel(db, account, siteId, nu = new Date()) {
   return db.transactie(async (tx) => {
     const acc = (await tx.query(`SELECT pakket FROM accounts WHERE id = $1${tx.soort === 'pg' ? ' FOR UPDATE' : ''}`, [account.id])).rows[0];
     if (!acc) throw new Fout('Account niet gevonden.', 404);
-    const site = (await tx.query('SELECT id, domein FROM sites WHERE id = $1 AND account_id = $2', [siteId, account.id])).rows[0];
+    const site = (await tx.query('SELECT id, domein, eigendom_bevestigd FROM sites WHERE id = $1 AND account_id = $2', [siteId, account.id])).rows[0];
     if (!site) throw new Fout('Site niet gevonden.', 404);
+    // Stap 2: pas artikelen als het eigendom van het domein is bevestigd.
+    if (!site.eigendom_bevestigd) throw new Fout(`Bevestig eerst dat ${site.domein} van jou is. Daarna kan Rankcomet artikelen voor deze site maken.`, 403, { koppelen: site.id });
     const pk = pakketVoor(acc.pakket);
     const totaal = Number((await tx.query('SELECT COUNT(*) AS n FROM artikelen WHERE account_id = $1 AND maand = $2', [account.id, maand])).rows[0].n);
     if (totaal >= pk.artikelen_per_maand) {

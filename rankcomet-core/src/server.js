@@ -1,6 +1,7 @@
 // Start de app. Weigert te starten als de EU-config of de geheimen niet kloppen.
 import { maakDb, migreer } from './db.js';
 import { maakApp } from './app.js';
+import { maakOphaler } from './ophalen.js';
 import { maakLogger } from './log.js';
 import { controleerAzureEnv } from './azure.js';
 import { laadSleutel } from './geheimen.js';
@@ -26,7 +27,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // [A34] Nog geen echte mailer (SMTP of mailprovider in de EU volgt). Tot dan mislukt elke mail; de app
   // logt dat en de klant kan het later opnieuw proberen.
   const mailer = { stuur: async () => { throw new Error('Mailer nog niet gekoppeld (R3)'); } };
-  const app = maakApp({ db, stripe, mailer, logger });
+  const app = maakApp({ db, stripe, mailer, ophalen: maakOphaler(), logger });
   const poort = Number(process.env.RC_POORT || 3100);
   app.listen(poort, '127.0.0.1', () => process.stdout.write(`Rankcomet luistert op 127.0.0.1:${poort}\n`));
   setInterval(() => logger.ruimOp(bewaartermijnDagen()).catch(() => {}), 6 * 3600 * 1000).unref();

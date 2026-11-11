@@ -2,6 +2,9 @@ import { maakDb, migreer, leegVoorTest } from '../src/db.js';
 import { maakLogger } from '../src/log.js';
 import { maakApp } from '../src/app.js';
 import * as acc from '../src/accounts.js';
+import * as sites from '../src/sites.js';
+import { maakOphaler } from '../src/ophalen.js';
+import { STANDAARD_GRENZEN } from '../src/grens.js';
 import { randomBytes } from 'node:crypto';
 
 export const TEST_ENV = {
@@ -34,15 +37,42 @@ export function nepMailer() {
 export function linkUit(mail) { const u = new URL(mail.tekst.match(/https:\/\/\S+/)[0]); return { pad: u.pathname, token: u.searchParams.get('token') }; }
 
 // Ruime grenzen, zodat tests die veel accounts aanmaken niet tegen de rate limiting aanlopen.
-const RUIM = Object.fromEntries(['login_ip', 'login_email', 'registreren_ip', 'registreren_email', 'herstel_ip', 'herstel_email', 'opnieuw_account'].map((k) => [k, { max: 1e6, ms: 60000 }]));
+const RUIM = Object.fromEntries(Object.keys(STANDAARD_GRENZEN).map((k) => [k, { max: 1e6, ms: 60000 }]));
 
-export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV } = {}) {
+// Nep-internet voor de koppelcontrole: een tabel van url -> html (of een functie). Alles wat er niet in
+// staat, bestaat niet. Gebruikt dezelfde ophaler als productie, met een nep-DNS en nep-verbinding.
+export function nepInternet(paginas = {}) {
+  const internet = {
+    paginas, verzoeken: [],
+    ophalen: maakOphaler({
+      lookup: async (host) => Object.keys(paginas).some((u) => new URL(u).hostname === host) ? [{ address: '93.184.216.34', family: 4 }] : [],
+      verbind: async ({ hostnaam, pad }) => {
+        internet.verzoeken.push(`https://${hostnaam}${pad}`);
+        const p = paginas[`https://${hostnaam}${pad}`];
+        if (p === undefined) return { status: 404, headers: {}, body: Buffer.from('niet gevonden') };
+        return typeof p === 'function' ? p() : { status: 200, headers: {}, body: Buffer.from(p) };
+      },
+    }),
+  };
+  return internet;
+}
+
+// Site toevoegen én koppelen via de echte flow: de koppelcode staat op de nep-homepage.
+export async function koppelSite(db, account, velden, internet = nepInternet()) {
+  const { site } = await sites.voegSiteToe(db, account, velden);
+  const { metatag } = await sites.koppelcodeVoor(db, account.id, site.id);
+  internet.paginas[`https://${site.domein}/`] = `<html><head>${metatag}</head></html>`;
+  await sites.controleerEigendom(db, account.id, site.id, internet.ophalen);
+  return site;
+}
+
+export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet() } = {}) {
   const logger = maakLogger(db);
   const mailer = nepMailer();
-  const server = maakApp({ db, stripe, mailer, logger, env, veiligeCookie: false, grenzen });
+  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, logger, env, veiligeCookie: false, grenzen });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const basis = `http://127.0.0.1:${server.address().port}`;
-  return { server, basis, stripe, mailer, logger, sluit: () => new Promise((ok) => server.close(ok)) };
+  return { server, basis, stripe, mailer, internet, logger, sluit: () => new Promise((ok) => server.close(ok)) };
 }
 
 // Account met bevestigd e-mailadres, via de gewone servicefuncties.
