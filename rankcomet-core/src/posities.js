@@ -64,16 +64,19 @@ export async function controleerAlleSites(db, ctx, tijd = new Date()) {
 // (positief = beter, dus een lager getal). Alleen de eigen site.
 export async function overzicht(db, accountId, siteId, tijd = new Date()) {
   await eigenSite(db, accountId, siteId);
-  const dag = huidigeDag(tijd), weekTerug = dagEerder(dag, 7);
+  const dag = huidigeDag(tijd), weekTerug = dagEerder(dag, 7), maandTerug = dagEerder(dag, 28);
   const rijen = (await db.query(`SELECT z.id, z.zoekwoord, z.volume,
       (SELECT p.positie FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' ORDER BY p.dag DESC LIMIT 1) AS positie,
       (SELECT p.url FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' ORDER BY p.dag DESC LIMIT 1) AS url,
       (SELECT p.dag FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' ORDER BY p.dag DESC LIMIT 1) AS dag,
-      (SELECT p.positie FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' AND p.dag <= $3 ORDER BY p.dag DESC LIMIT 1) AS week_terug
-    FROM zoekwoorden z WHERE z.site_id = $1 AND z.account_id = $2 AND z.gevolgd = 1 ORDER BY CASE WHEN (SELECT p.positie FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' ORDER BY p.dag DESC LIMIT 1) IS NULL THEN 1 ELSE 0 END, 4, z.zoekwoord`, [siteId, accountId, weekTerug])).rows;
+      (SELECT p.positie FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' AND p.dag <= $3 ORDER BY p.dag DESC LIMIT 1) AS week_terug,
+      (SELECT p.positie FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' AND p.dag <= $4 ORDER BY p.dag DESC LIMIT 1) AS maand_terug,
+      (SELECT p.url FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' AND p.url IS NOT NULL ORDER BY p.dag DESC LIMIT 1) AS laatste_url
+    FROM zoekwoorden z WHERE z.site_id = $1 AND z.account_id = $2 AND z.gevolgd = 1 ORDER BY CASE WHEN (SELECT p.positie FROM posities p WHERE p.zoekwoord_id = z.id AND p.status = 'klaar' ORDER BY p.dag DESC LIMIT 1) IS NULL THEN 1 ELSE 0 END, 4, z.zoekwoord`, [siteId, accountId, weekTerug, maandTerug])).rows;
   return rijen.map((r) => {
-    const positie = r.positie == null ? null : Number(r.positie), week = r.week_terug == null ? null : Number(r.week_terug);
-    return { id: r.id, zoekwoord: r.zoekwoord, volume: r.volume, positie, url: r.url, dag: r.dag, weekTerug: week, verschil: positie != null && week != null ? week - positie : null };
+    const positie = r.positie == null ? null : Number(r.positie), week = r.week_terug == null ? null : Number(r.week_terug), maand = r.maand_terug == null ? null : Number(r.maand_terug);
+    // laatsteUrl: de laatst bekende URL, ook als de site nu buiten de top 20 valt (dan is url leeg).
+    return { id: r.id, zoekwoord: r.zoekwoord, volume: r.volume, positie, url: r.url, laatsteUrl: r.laatste_url, dag: r.dag, weekTerug: week, maandTerug: maand, verschil: positie != null && week != null ? week - positie : null };
   });
 }
 
