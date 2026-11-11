@@ -163,7 +163,7 @@ test('A22: artikelmaand volgt de Nederlandse tijd, in winter- en zomertijd', asy
 test('A22: de limiet begint opnieuw om middernacht Nederlandse tijd, niet om middernacht UTC', async () => {
   const a = await registreerBevestigd(db, 'middernacht@test.invalid', WW, 'solo');
   const s = (await koppelSite(db, a, { domein: 'middernacht.test', platform: 'wordpress' })).id;
-  for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, new Date('2026-11-30T22:30:00Z')); // 23:30 op 30 november
+  for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, new Date(`2026-11-${21 + i}T22:30:00Z`)); // één per dag, de laatste om 23:30 op 30 november
   assert.equal((await reserveerArtikel(db, a, s, new Date('2026-11-30T22:45:00Z')).catch((e) => e)).status, 403);
   // 00:30 op 1 december in Nederland, terwijl het in UTC nog 30 november is.
   assert.equal((await reserveerArtikel(db, a, s, new Date('2026-11-30T23:30:00Z'))).maand, '2026-12');

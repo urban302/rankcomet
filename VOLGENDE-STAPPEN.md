@@ -1,6 +1,6 @@
 # Rankcomet: volgende stappen
 
-Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 3 klaar, 79/79 tests groen op SQLite en Postgres. Niets is uitgerold.
+Stand: R2 op `main` (commit 3c11373). Stap 0 tot en met 4 klaar, 88/88 tests groen op SQLite en Postgres. Niets is uitgerold.
 
 Werk de stappen op volgorde af, één pull request per stap. Lees eerst `CLAUDE.md`.
 
@@ -46,7 +46,9 @@ Gedaan: plugin in `wordpress-plugin/` met ondertekende REST-routes, voorstellen 
 - WooCommerce (alleen in pakketten die het mogen): alleen titels, beschrijvingen, meta en alt-teksten. Prijs, voorraad, SKU en bestellingen zijn nooit schrijfbaar, ook niet per ongeluk (aparte test).
 - Een herhaalpoging publiceert nooit twee keer (idempotentiesleutel per wijziging, test met dubbele aanroep).
 
-## Stap 4: de Conquer-pipeline met kwaliteitspoort
+## Stap 4: de Conquer-pipeline met kwaliteitspoort, KLAAR
+Gedaan: siteprofiel per site, pijplijn in `rankcomet-core/src/pijplijn.js` (reserveren met maand- en temporem, brief, artikel met interne links en meta, kwaliteitspoort in `src/kwaliteit.js`, één herkansing, voorstel via stap 3), prompts in `rankcomet-core/prompts/`, terugboeken bij elke mislukking. Aannames A48 tot A53. Nog te doen: de echte Azure-aanroep testen zodra de sleutels er zijn (A48), en een wachtrij zodat het schrijven niet in het verzoek zelf gebeurt (A52).
+
 - Van zoekwoord tot conceptartikel: onderwerp kiezen, opzet, tekst, interne links, meta.
 - Kwaliteitspoort vóór een concept naar de klant gaat:
   - het artikel gebruikt eigen klantinformatie (diensten, plaats, ervaring) en is niet generiek;

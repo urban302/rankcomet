@@ -9,6 +9,8 @@ import { maakCheckout, verwerkWebhook } from './stripe.js';
 import { maakBegrenzer, STANDAARD_GRENZEN } from './grens.js';
 import { verificatieMail, herstelMail } from './mail.js';
 import * as wijz from './wijzigingen.js';
+import { schrijfArtikel } from './pijplijn.js';
+import { lijstArtikelen } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,9 +35,9 @@ function leesBody(req, max = 1024 * 1024) {
 const formulier = (t) => Object.fromEntries(new URLSearchParams(t));
 const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${naam}=([^;]+)`)); return m ? decodeURIComponent(m[1]) : null; };
 
-export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
+export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
-  const ctx = { ophalen, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
+  const ctx = { ophalen, model, logger, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
   const begrenzer = maakBegrenzer(grenzen);
   // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
   // laatste adres uit X-Forwarded-For (dat zet onze eigen proxy). Zonder die instelling negeren we de header,
@@ -159,7 +161,7 @@ export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env
     if (m === 'GET' && pad === '/dashboard') {
       const lijst = await sites.lijstSites(db, account.id);
       const pk = laadPakketten().pakketten[account.pakket];
-      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)} · ${s.bevestigd ? `gekoppeld · <a href="/sites/${esc(s.id)}/plugin">plugin</a>` : `<a href="/sites/${esc(s.id)}/koppelen">nog koppelen</a>`}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
+      const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)} · ${s.bevestigd ? `gekoppeld · <a href="/sites/${esc(s.id)}/plugin">plugin</a> · <a href="/sites/${esc(s.id)}/profiel">profiel</a> · <a href="/sites/${esc(s.id)}/artikel">artikel laten schrijven</a>` : `<a href="/sites/${esc(s.id)}/koppelen">nog koppelen</a>`}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
       const open = (await wijz.lijst(db, account.id, { status: 'voorstel' })).length;
       const wacht = open ? `<section role="status"><p><strong>Wacht op jou:</strong> ${open} ${open === 1 ? 'voorstel' : 'voorstellen'}. <a href="/wijzigingen">Bekijk en keur goed</a></p></section>` : '';
       return stuur(res, 200, pagina('Dashboard', `${account.geverifieerd ? '' : bevestigMelding()}${wacht}<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
@@ -220,6 +222,38 @@ export function maakApp({ db, stripe, mailer, ophalen, logger, env = process.env
         const sleutel = await wijz.maakPluginSleutel(db, ctx.geheimenSleutel, account.id, siteId);
         await logger.log('info', `pluginsleutel gemaakt account=${account.id} site=${siteId}`);
         return stuur(res, 200, pagina(`Plugin voor ${site.domein}`, `<p>Dit is je nieuwe sleutel. Kopieer hem nu, we laten hem maar één keer zien.</p><pre><code>${esc(sleutel)}</code></pre><p>Plak de sleutel in WordPress bij Instellingen, Rankcomet. Een oude sleutel werkt vanaf nu niet meer.</p><p><a href="/sites/${esc(siteId)}/plugin">Terug</a></p>`, account));
+      }
+    }
+    // Stap 4: siteprofiel en een artikel laten schrijven.
+    const sp = pad.match(/^\/sites\/([^/]+)\/(profiel|artikel)$/);
+    if (sp) {
+      const [, siteId, wat] = sp;
+      const site = await sites.haalSite(db, account.id, siteId);
+      if (!site) return stuur(res, 404, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account));
+      if (wat === 'profiel') {
+        if (m === 'GET') return stuur(res, 200, pagina(`Profiel van ${site.domein}`, profielForm(site, await sites.haalProfiel(db, account.id, siteId), url.searchParams.get('ok') ? 'Opgeslagen.' : null), account));
+        if (m === 'POST') {
+          try { await sites.bewaarProfiel(db, account.id, siteId, formulier(await leesBody(req))); return naar(res, `/sites/${siteId}/profiel?ok=1`); }
+          catch (e) { if (!(e instanceof acc.Fout)) throw e; return stuur(res, e.status, pagina(`Profiel van ${site.domein}`, profielForm(site, formulier(''), null, e.message), account)); }
+        }
+      }
+      if (wat === 'artikel') {
+        const artikelen = await lijstArtikelen(db, account.id, siteId);
+        if (m === 'GET') return stuur(res, 200, pagina(`Artikel voor ${site.domein}`, artikelForm(site, artikelen), account));
+        if (m === 'POST') {
+          const wacht = begrenzer.wachttijd([['artikel_account', account.id]]);
+          if (wacht) return teVeel(res, 'artikel', wacht, `Artikel voor ${site.domein}`);
+          begrenzer.tel([['artikel_account', account.id]]);
+          const f = formulier(await leesBody(req));
+          try {
+            const r = await schrijfArtikel(db, ctx, account, siteId, { zoekwoord: f.zoekwoord });
+            return naar(res, `/wijzigingen/${r.wijziging.id}`);
+          } catch (e) {
+            if (!(e instanceof acc.Fout)) throw e;
+            const extra = e.profiel ? `<p><a href="/sites/${esc(siteId)}/profiel">Vul het siteprofiel in</a></p>` : e.bevindingen ? `<ul>${e.bevindingen.map((b) => `<li>${esc(b.tekst)}</li>`).join('')}</ul>` : '';
+            return stuur(res, e.status, pagina(`Artikel voor ${site.domein}`, `<p role="alert">${esc(e.message)}</p>${extra}${artikelForm(site, await lijstArtikelen(db, account.id, siteId))}`, account));
+          }
+        }
       }
     }
     // Stap 3: voorstellen bekijken, goedkeuren, afwijzen, terugzetten. Alles gefilterd op account.
@@ -308,6 +342,18 @@ function wijzigingPagina(w, fout) {
   if (w.status === 'gepubliceerd' && w.doel_id && !Object.values(w.velden).some((v) => v.oud === null)) knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/terugzetten"><button>Terugzetten naar de oude tekst</button></form>`;
   if (w.status === 'mislukt') knoppen = `<form method="post" action="/wijzigingen/${esc(w.id)}/opnieuw"><button>Opnieuw proberen</button></form>`;
   return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${w.melding ? `<p role="status">${esc(w.melding)}</p>` : ''}<p>Status: ${esc(statusTekst(w.status))}. Reden: ${esc(w.reden)}</p>${velden}${knoppen}<p><a href="/wijzigingen">Terug naar de lijst</a></p>`;
+}
+
+function profielForm(site, p, melding, fout) {
+  p = p || {};
+  const veld = (naam, label, uitleg, groot) => `<label>${label}${groot ? `<textarea name="${naam}" rows="3">${esc(p[naam] || '')}</textarea>` : `<input name="${naam}" value="${esc(p[naam] || '')}">`}<small>${esc(uitleg)}</small></label>`;
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}<p>Met deze informatie schrijft Rankcomet over jouw bedrijf, en niet over zomaar een bedrijf. Elk artikel wordt hierop gecontroleerd.</p><form method="post" action="/sites/${esc(site.id)}/profiel">${veld('bedrijf', 'Naam van je bedrijf', 'Zoals klanten het kennen.')}${veld('diensten', 'Diensten of producten', 'Gescheiden door komma\'s, bijvoorbeeld: dakreparatie, dakisolatie, dakgoten.', true)}${veld('plaats', 'Plaats en werkgebied', 'Bijvoorbeeld: Utrecht en omgeving.')}${veld('ervaring', 'Ervaring en achtergrond', 'Sinds wanneer, opleiding, specialisatie. Alleen wat echt zo is.', true)}${veld('doelgroep', 'Voor wie', 'Bijvoorbeeld: particulieren met een eigen woning.')}${veld('toon', 'Toon', 'Bijvoorbeeld: nuchter en vriendelijk.')}${veld('uitgesloten', 'Onderwerpen die je niet wilt', 'Bijvoorbeeld: prijzen, concurrenten.', true)}<button>Opslaan</button></form>`;
+}
+
+const ARTIKEL_STATUS = { gereserveerd: 'bezig', concept: 'voorstel klaar', teruggeboekt: 'niet gelukt' };
+function artikelForm(site, artikelen) {
+  const rijen = artikelen.map((a) => `<li>${esc(a.zoekwoord || '')} · ${esc(ARTIKEL_STATUS[a.status] || a.status)}${a.score != null ? ` · score ${esc(a.score)}` : ''}${a.wijziging_id ? ` · <a href="/wijzigingen/${esc(a.wijziging_id)}">bekijk</a>` : ''}${a.status === 'teruggeboekt' && a.melding ? ` · ${esc(a.melding)}` : ''}</li>`).join('');
+  return `<p>Vul een zoekwoord in. Rankcomet kiest een onderwerp, schrijft een artikel met interne links en meta, controleert het en zet het als voorstel klaar. Jij keurt het goed voor het op je site komt. Dit duurt ongeveer een minuut.</p><form method="post" action="/sites/${esc(site.id)}/artikel"><label>Zoekwoord <input name="zoekwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie kosten"></label><button>Schrijf een artikel</button></form><h2>Eerdere artikelen</h2><ul>${rijen || '<li>Nog geen.</li>'}</ul>`;
 }
 
 function bevestigMelding() {
