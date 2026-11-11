@@ -36,7 +36,7 @@ async function pluginSleutel(db, geheimenSleutel, accountId, siteId) {
 }
 
 // Site van dit account, gekoppeld, met een WP-client. Site van een ander account: 404.
-async function siteMetClient(db, ctx, accountId, siteId) {
+export async function clientVoorSite(db, ctx, accountId, siteId) {
   const site = (await db.query('SELECT id, domein, platform, eigendom_bevestigd FROM sites WHERE id = $1 AND account_id = $2', [siteId, accountId])).rows[0];
   if (!site) throw new Fout('Site niet gevonden.', 404);
   if (!site.eigendom_bevestigd) throw new Fout(`Bevestig eerst dat ${site.domein} van jou is.`, 403, { koppelen: site.id });
@@ -45,7 +45,7 @@ async function siteMetClient(db, ctx, accountId, siteId) {
 }
 
 export async function pluginStatus(db, ctx, accountId, siteId) {
-  const { wp } = await siteMetClient(db, ctx, accountId, siteId);
+  const { wp } = await clientVoorSite(db, ctx, accountId, siteId);
   return wp.status();
 }
 
@@ -70,7 +70,7 @@ export async function lijst(db, accountId, { siteId = null, status = null } = {}
 export async function stelVoor(db, ctx, account, siteId, { doelType, doelId = null, velden: invoer, reden }) {
   const schoon = controleerVelden(doelType, invoer);
   if (typeof reden !== 'string' || !reden.trim()) throw new Fout('Geef een reden voor deze wijziging.', 400);
-  const { site, wp } = await siteMetClient(db, ctx, account.id, siteId);
+  const { site, wp } = await clientVoorSite(db, ctx, account.id, siteId);
   if (WOOCOMMERCE_TYPES.includes(doelType)) {
     if (site.platform !== 'woocommerce') throw new Fout(`${site.domein} is geen WooCommerce-webshop.`, 400);
     if (!pakketVoor(account.pakket).woocommerce_producten) throw new Fout(`Je pakket ${pakketVoor(account.pakket).naam} bevat geen WooCommerce-productteksten.`, 403);
@@ -136,7 +136,7 @@ export async function publiceer(db, ctx, account, id) {
   if (!w) throw new Fout('Voorstel niet gevonden.', 404);
   if (w.status === 'gepubliceerd') return { wijziging: w, alGedaan: true };
   if (!['goedgekeurd', 'mislukt'].includes(w.status)) throw new Fout('Dit voorstel is nog niet goedgekeurd.', 409);
-  const { wp } = await siteMetClient(db, ctx, account.id, w.site_id);
+  const { wp } = await clientVoorSite(db, ctx, account.id, w.site_id);
   if (w.doel_id !== null && !w.terugzet_van) {
     const huidig = (await wp.haalDoel(w.doel_type, w.doel_id)).velden || {};
     // Een veld telt als 'met de hand gewijzigd' als de huidige waarde noch de oude, noch de nieuwe is.

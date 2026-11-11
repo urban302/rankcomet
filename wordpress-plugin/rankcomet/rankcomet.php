@@ -73,6 +73,7 @@ add_action('rest_api_init', function () {
     register_rest_route('rankcomet/v1', '/status', ['methods' => 'GET', 'callback' => 'rankcomet_rest_status', 'permission_callback' => $controle]);
     register_rest_route('rankcomet/v1', '/doel/(?P<type>[a-z]+)/(?P<id>[0-9]+)', ['methods' => 'GET', 'callback' => 'rankcomet_rest_doel', 'permission_callback' => $controle]);
     register_rest_route('rankcomet/v1', '/wijzigingen', ['methods' => 'POST', 'callback' => 'rankcomet_rest_wijziging', 'permission_callback' => $controle]);
+    register_rest_route('rankcomet/v1', '/paginas', ['methods' => 'GET', 'callback' => 'rankcomet_rest_paginas', 'permission_callback' => $controle]);
 });
 
 // Handtekening controleren. Nonces bewaren we 10 minuten; een tijd die meer dan 5 minuten afwijkt is ongeldig.
@@ -96,6 +97,17 @@ function rankcomet_rest_status(): array {
         'woocommerce' => class_exists('WooCommerce'),
         'seo' => rankcomet_seo_plugin(),
     ];
+}
+
+// Gepubliceerde pagina's, berichten en producten: voor interne links en de duplicaatcheck (hooguit 200).
+function rankcomet_rest_paginas(): array {
+    $types = ['post', 'page'];
+    if (class_exists('WooCommerce')) { $types[] = 'product'; }
+    $lijst = [];
+    foreach (get_posts(['post_type' => $types, 'post_status' => 'publish', 'numberposts' => 200, 'orderby' => 'modified', 'order' => 'DESC']) as $p) {
+        $lijst[] = ['id' => (string) $p->ID, 'type' => $p->post_type, 'titel' => $p->post_title, 'url' => get_permalink($p)];
+    }
+    return ['paginas' => $lijst];
 }
 
 function rankcomet_rest_doel(WP_REST_Request $req) {

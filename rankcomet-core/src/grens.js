@@ -16,6 +16,7 @@ export const STANDAARD_GRENZEN = {
   herstel_email: { max: 3, ms: UUR },
   opnieuw_account: { max: 3, ms: UUR },      // bevestigingsmail opnieuw sturen
   koppelcontrole_site: { max: 10, ms: UUR }, // koppelcode controleren op een klantsite (haalt die site op)
+  artikel_account: { max: 10, ms: UUR },     // artikelen laten schrijven (kost geld bij Azure)
 };
 
 export function maakBegrenzer(grenzen = STANDAARD_GRENZEN, klok = Date.now) {

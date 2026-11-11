@@ -42,5 +42,6 @@ export function maakWpClient({ ophalen, domein, sleutel }) {
     status: () => vraag('GET', '/status'),
     haalDoel: (doelType, doelId) => vraag('GET', `/doel/${encodeURIComponent(doelType)}/${encodeURIComponent(doelId)}`),
     pasToe: (wijziging) => vraag('POST', '/wijzigingen', wijziging),
+    paginas: () => vraag('GET', '/paginas'),
   };
 }

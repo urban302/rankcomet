@@ -62,7 +62,7 @@ export function nepInternet(paginas = {}) {
 
 // Nep-plugin: doet op de nep-site precies wat de WordPress-plugin doet (handtekening, nonce, witte lijst,
 // idempotentie), zodat de Rankcomet-kant van het protocol van begin tot eind getest wordt.
-export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast' } = {}) {
+export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast', paginas = [] } = {}) {
   const toegepast = new Map(), nonces = new Set(), oproepen = [];
   const antwoord = (status, o) => ({ status, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(o)) });
   const handler = (v) => {
@@ -73,6 +73,7 @@ export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast
     if (handtekening(sleutel, v.methode, pad, tijd, nonce, v.body || '') !== h['x-rankcomet-handtekening']) return antwoord(401, { fout: 'handtekening' });
     nonces.add(nonce);
     if (v.methode === 'GET' && pad.endsWith('/status')) return antwoord(200, { plugin: '0.1.0', woocommerce: true, seo });
+    if (v.methode === 'GET' && pad.endsWith('/paginas')) return antwoord(200, { paginas });
     const doel = pad.match(/\/doel\/([^/]+)\/([^/]+)$/);
     if (v.methode === 'GET' && doel) { const d = doelen[`${doel[1]}:${doel[2]}`]; return d ? antwoord(200, { velden: d }) : antwoord(404, { fout: 'doel_onbekend' }); }
     if (v.methode === 'POST' && pad.endsWith('/wijzigingen')) {
@@ -91,10 +92,10 @@ export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast
     }
     return antwoord(404, { fout: 'onbekend' });
   };
-  for (const pad of ['/status', '/wijzigingen']) internet.paginas[`https://${domein}${PLUGIN_PAD}${pad}`] = handler;
+  for (const pad of ['/status', '/wijzigingen', '/paginas']) internet.paginas[`https://${domein}${PLUGIN_PAD}${pad}`] = handler;
   internet.doelHandler = internet.doelHandler || {};
   internet.doelHandler[domein] = handler;
-  return { doelen, toegepast, oproepen, nonces };
+  return { doelen, toegepast, oproepen, nonces, paginas };
 }
 
 // Site toevoegen én koppelen via de echte flow: de koppelcode staat op de nep-homepage.
@@ -106,13 +107,13 @@ export async function koppelSite(db, account, velden, internet = nepInternet()) 
   return site;
 }
 
-export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet() } = {}) {
+export async function startApp(db, stripe = mockStripe(), { grenzen = RUIM, env = TEST_ENV, internet = nepInternet(), model = null } = {}) {
   const logger = maakLogger(db);
   const mailer = nepMailer();
-  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, logger, env, veiligeCookie: false, grenzen });
+  const server = maakApp({ db, stripe, mailer, ophalen: internet.ophalen, model, logger, env, veiligeCookie: false, grenzen });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const basis = `http://127.0.0.1:${server.address().port}`;
-  return { server, basis, stripe, mailer, internet, logger, sluit: () => new Promise((ok) => server.close(ok)) };
+  return { server, basis, stripe, mailer, internet, model, logger, sluit: () => new Promise((ok) => server.close(ok)) };
 }
 
 // Account met bevestigd e-mailadres, via de gewone servicefuncties.

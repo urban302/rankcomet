@@ -96,6 +96,19 @@ CREATE TABLE IF NOT EXISTS wijzigingen (
   gepubliceerd TEXT NULL
 );
 CREATE INDEX IF NOT EXISTS wijzigingen_site_status_idx ON wijzigingen(site_id, status);
+-- Stap 4: klantinformatie per site, de basis voor elk artikel en voor de kwaliteitspoort.
+CREATE TABLE IF NOT EXISTS siteprofielen (
+  site_id TEXT PRIMARY KEY REFERENCES sites(id),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  bedrijf TEXT NOT NULL,
+  diensten TEXT NOT NULL,
+  plaats TEXT NOT NULL,
+  ervaring TEXT NOT NULL DEFAULT '',
+  doelgroep TEXT NOT NULL DEFAULT '',
+  toon TEXT NOT NULL DEFAULT '',
+  uitgesloten TEXT NOT NULL DEFAULT '',
+  bijgewerkt TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS wijzigingen_account_idx ON wijzigingen(account_id);
 CREATE TABLE IF NOT EXISTS wijziging_velden (
   wijziging_id TEXT NOT NULL REFERENCES wijzigingen(id),
@@ -190,6 +203,14 @@ export async function migreer(db) {
   await voegKolomToe(db, 'sites', 'eigendom_bevestigd', 'TEXT NULL');
   // Stap 3: een geheim kan bij een site horen (de pluginsleutel).
   await voegKolomToe(db, 'geheimen', 'site_id', 'TEXT NULL');
+  // Stap 4: artikelen krijgen een zoekwoord, een status, een dag (temporem) en de koppeling met het voorstel.
+  await voegKolomToe(db, 'artikelen', 'zoekwoord', 'TEXT NULL');
+  await voegKolomToe(db, 'artikelen', 'status', "TEXT NOT NULL DEFAULT 'gereserveerd'");
+  await voegKolomToe(db, 'artikelen', 'dag', 'TEXT NULL');
+  await voegKolomToe(db, 'artikelen', 'wijziging_id', 'TEXT NULL');
+  await voegKolomToe(db, 'artikelen', 'score', 'INTEGER NULL');
+  await voegKolomToe(db, 'artikelen', 'melding', 'TEXT NULL');
+  await voegKolomToe(db, 'artikelen', 'bijgewerkt', 'TEXT NULL');
 }
 
 // Toevoegende migratie: een kolom erbij als die er nog niet is. Verwijdert nooit iets.
@@ -201,7 +222,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

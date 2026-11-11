@@ -65,12 +65,13 @@ test('A6: Bureau-proef 10 artikelen per site per maand, niet vrij te verdelen (5
   const a = await registreerBevestigd(db, 'bureau-art@test.invalid', 'Testwachtwoord-123!', 'bureau_proef');
   const ids = [];
   for (let i = 0; i < 5; i++) ids.push((await koppelSite(db, a, { domein: `art${i}.test`, platform: 'wordpress' })).id);
-  const nu = new Date('2026-11-15T12:00:00Z');
-  for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, ids[0], nu);
-  const f = await reserveerArtikel(db, a, ids[0], nu).catch((e) => e);
+  // Temporem (A49): hooguit 3 per site per dag, dus verspreid over dagen.
+  const dag = (i) => new Date(`2026-11-${String(10 + (i % 4)).padStart(2, '0')}T12:00:00Z`);
+  for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, ids[0], dag(i));
+  const f = await reserveerArtikel(db, a, ids[0], dag(10)).catch((e) => e);
   assert.equal(f.status, 403); assert.match(f.message, /^Voor art0\.test is deze maand het maximum van 10 artikelen bereikt\./);
-  for (const s of ids.slice(1)) for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, nu);
-  const f2 = await reserveerArtikel(db, a, ids[4], nu).catch((e) => e);
+  for (const s of ids.slice(1)) for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, dag(i));
+  const f2 = await reserveerArtikel(db, a, ids[4], dag(10)).catch((e) => e);
   assert.equal(f2.status, 403);
   // Nieuwe maand: weer ruimte.
   assert.ok(await reserveerArtikel(db, a, ids[0], new Date('2026-12-01T12:00:00Z')));
@@ -79,7 +80,8 @@ test('A6: Bureau-proef 10 artikelen per site per maand, niet vrij te verdelen (5
 test('A6: gelijktijdige artikelaanvragen op één site blijven binnen 10', async () => {
   const a = await registreerBevestigd(db, 'bureau-art2@test.invalid', 'Testwachtwoord-123!', 'bureau_proef');
   const s = (await koppelSite(db, a, { domein: 'artrace.test', platform: 'wordpress' })).id;
-  const rs = await Promise.allSettled(Array.from({ length: 15 }, () => reserveerArtikel(db, a, s)));
+  const dag = (i) => new Date(`2026-11-${String(10 + (i % 4)).padStart(2, '0')}T12:00:00Z`); // 4 dagen x 3 = ruimte voor 12, maand staat 10 toe
+  const rs = await Promise.allSettled(Array.from({ length: 15 }, (_, i) => reserveerArtikel(db, a, s, dag(i))));
   assert.equal(rs.filter((r) => r.status === 'fulfilled').length, 10);
 });
 
@@ -87,8 +89,9 @@ test('artikelen: Solo 10 per account; site van een ander account geweigerd', asy
   const a = await registreerBevestigd(db, 'solo-art@test.invalid', 'Testwachtwoord-123!', 'solo');
   const b = await registreerBevestigd(db, 'solo-art-b@test.invalid', 'Testwachtwoord-123!', 'solo');
   const s = (await koppelSite(db, a, { domein: 'soloart.test', platform: 'wordpress' })).id;
-  for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s);
-  const f = await reserveerArtikel(db, a, s).catch((e) => e);
+  const dag = (i) => new Date(`2026-11-${String(10 + (i % 5)).padStart(2, '0')}T12:00:00Z`); // Solo: 2 per dag
+  for (let i = 0; i < 10; i++) await reserveerArtikel(db, a, s, dag(i));
+  const f = await reserveerArtikel(db, a, s, dag(10)).catch((e) => e);
   assert.equal(f.status, 403); assert.match(f.message, /maximum van 10 artikelen van uw pakket Solo bereikt\. Upgrade naar Pro/);
   assert.equal((await reserveerArtikel(db, b, s).catch((e) => e)).status, 404);
 });

@@ -110,3 +110,26 @@ export async function voegSiteToe(db, account, { domein, taal = 'nl', land = 'NL
   });
   return { wachtlijst: false, site: { id, domein, taal, land, platform, bevestigd: false } };
 }
+
+// --- Siteprofiel (stap 4): de klantinformatie waarmee Rankcomet schrijft ---
+const PROFIEL_VELDEN = { bedrijf: 200, diensten: 2000, plaats: 200, ervaring: 2000, doelgroep: 1000, toon: 500, uitgesloten: 1000 };
+
+export async function haalProfiel(db, accountId, siteId) {
+  return (await db.query('SELECT bedrijf, diensten, plaats, ervaring, doelgroep, toon, uitgesloten, bijgewerkt FROM siteprofielen WHERE site_id = $1 AND account_id = $2', [siteId, accountId])).rows[0] || null;
+}
+
+export async function bewaarProfiel(db, accountId, siteId, invoer) {
+  const site = (await db.query('SELECT id FROM sites WHERE id = $1 AND account_id = $2', [siteId, accountId])).rows[0];
+  if (!site) throw new Fout('Site niet gevonden.', 404);
+  const p = {};
+  for (const [veld, max] of Object.entries(PROFIEL_VELDEN)) {
+    const w = String(invoer?.[veld] ?? '').trim();
+    if (w.length > max) throw new Fout(`Het veld "${veld}" is te lang (maximaal ${max} tekens).`, 400);
+    p[veld] = w;
+  }
+  for (const veld of ['bedrijf', 'diensten', 'plaats']) if (!p[veld]) throw new Fout('Vul in elk geval de naam van je bedrijf, je diensten en je plaats in.', 400);
+  await db.query(`INSERT INTO siteprofielen (site_id, account_id, bedrijf, diensten, plaats, ervaring, doelgroep, toon, uitgesloten, bijgewerkt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (site_id) DO UPDATE SET bedrijf = $3, diensten = $4, plaats = $5, ervaring = $6, doelgroep = $7, toon = $8, uitgesloten = $9, bijgewerkt = $10 WHERE siteprofielen.account_id = $2`,
+    [siteId, accountId, p.bedrijf, p.diensten, p.plaats, p.ervaring, p.doelgroep, p.toon, p.uitgesloten, new Date().toISOString()]);
+  return haalProfiel(db, accountId, siteId);
+}

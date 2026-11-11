@@ -29,3 +29,24 @@ export function maakAzureClient(env = process.env, transport) {
     },
   };
 }
+
+// De schrijfhulp voor de pijplijn (stap 4): één functie chat(berichten, { json }) die de tekst van het
+// antwoord en het tokenverbruik teruggeeft. In tests is dit een nep-model; hier de echte Azure-aanroep.
+// [A48] Alleen het antwoord zelf en de aantallen tokens komen terug; de prompt wordt niet gelogd.
+export function maakModel(env = process.env, fetchFn = globalThis.fetch) {
+  const client = maakAzureClient(env, async (url, init) => {
+    const r = await fetchFn(url, { ...init, signal: AbortSignal.timeout(120000) });
+    const tekst = await r.text();
+    let data = null; try { data = JSON.parse(tekst); } catch {}
+    if (!r.ok) { const e = new Error(`Azure OpenAI gaf ${r.status}`); e.status = r.status; e.azureCode = data?.error?.code; throw e; }
+    return data;
+  });
+  return {
+    async chat(berichten, { json = true, temperatuur = 0.4, maxTokens = 4000 } = {}) {
+      const data = await client.chat(berichten, { temperature: temperatuur, max_tokens: maxTokens, ...(json ? { response_format: { type: 'json_object' } } : {}) });
+      const keuze = data?.choices?.[0];
+      if (!keuze?.message?.content) throw new Error('Azure OpenAI gaf geen inhoud');
+      return { tekst: keuze.message.content, tokens: { in: data.usage?.prompt_tokens ?? null, uit: data.usage?.completion_tokens ?? null }, afgebroken: keuze.finish_reason === 'length' };
+    },
+  };
+}
