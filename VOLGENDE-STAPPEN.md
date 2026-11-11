@@ -97,8 +97,8 @@ Gedaan: OAuth met PKCE en de ene scope (`rankcomet-core/src/google.js`, `src/gsc
 ### Stap 9: contentrefresh, KLAAR
 Gedaan: kandidaten op leeftijd (datum uit de plugin), positiedaling (rank tracking, 28 dagen) en klikdaling (Search Console, met geschiedenis), drempels per site, opfrisvoorstel via de pijplijn en de kwaliteitspoort op de bestaande pagina (`rankcomet-core/src/opfrissen.js`, `prompts/opfrissen.md`), daggrens per site, effect per URL (toen tegenover nu). Aannames A67 tot A70.
 
-### Stap 10: maandrapport
-- Per account per maand: artikelen geschreven en gepubliceerd, wijzigingen, posities (top 10 en verschil), klikken uit Search Console, opfrisbeurten. Als pagina in de app en als mail op de eerste van de maand (eenmalig per account per maand).
+### Stap 10: maandrapport, KLAAR
+Gedaan: `rankcomet-core/src/rapport.js` telt per account per maand de artikelen, voorstellen (op de site gezet, afgewezen, teruggezet), opfrissingen en per site de posities (top 10 aan het begin en einde van de maand, omhoog en omlaag) en de klikken uit Search Console (laatste periode tegenover een maand eerder). Pagina's `/rapport` en `/rapport/<maand>`, mail op de eerste van de maand via de uurlijkse planning, één keer per account per maand (claim in de tabel `rapporten`). Aannames A71 tot A73.
 
 ### Stap 11: wachtrij voor het schrijven
 - Artikelen en opfrisvoorstellen schrijven buiten het verzoek om: taak in de wachtrij, "we zijn bezig" in de app, een mail als het klaar is. Eén taak tegelijk per proces, nooit twee keer dezelfde taak.
