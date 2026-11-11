@@ -13,6 +13,7 @@ import { maakBegrenzer, STANDAARD_GRENZEN } from './grens.js';
 import { verificatieMail, herstelMail } from './mail.js';
 import * as wijz from './wijzigingen.js';
 import { schrijfArtikel } from './pijplijn.js';
+import * as zw from './zoekwoorden.js';
 import { lijstArtikelen, artikelenOverzicht, huidigeMaand } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
@@ -45,9 +46,9 @@ function leesBody(req, max = 1024 * 1024) {
 const formulier = (t) => Object.fromEntries(new URLSearchParams(t));
 const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${naam}=([^;]+)`)); return m ? decodeURIComponent(m[1]) : null; };
 
-export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
+export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
-  const ctx = { ophalen, model, logger, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
+  const ctx = { ophalen, model, dataforseo, logger, geheimenSleutel: laadSleutel(env) }; // voor de plugin: veilige ophaler en de sleutel om pluginsleutels te ontsleutelen
   const begrenzer = maakBegrenzer(grenzen);
   // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
   // laatste adres uit X-Forwarded-For (dat zet onze eigen proxy). Zonder die instelling negeren we de header,
@@ -234,6 +235,34 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
         return stuur(res, 200, pagina(`Plugin voor ${site.domein}`, `<p>Dit is je nieuwe sleutel. Kopieer hem nu, we laten hem maar één keer zien.</p><pre><code>${esc(sleutel)}</code></pre><p>Plak de sleutel in WordPress bij Instellingen, Rankcomet. Een oude sleutel werkt vanaf nu niet meer.</p><p><a href="/sites/${esc(siteId)}/plugin">Terug</a></p>`, account));
       }
     }
+    // Stap 6: zoekwoorden per site: onderzoeken, volgen, zelf toevoegen.
+    const zm = pad.match(/^\/sites\/([^/]+)\/zoekwoorden(?:\/(onderzoek|toevoegen|volgen|ontvolgen))?$/);
+    if (zm) {
+      const [, siteId, actie] = zm;
+      const site = await sites.haalSite(db, account.id, siteId);
+      if (!site) return stuur(res, 404, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account));
+      const toon = async (status = 200, fout = null) => stuur(res, status, pagina(`Zoekwoorden voor ${site.domein}`, zoekwoordenPagina(site, await zw.lijst(db, account.id, siteId), laadPakketten().pakketten[account.pakket], url.searchParams.get('m'), fout), account));
+      if (m === 'GET' && !actie) return toon();
+      if (m === 'POST' && actie) {
+        const f = formulier(await leesBody(req));
+        try {
+          if (actie === 'onderzoek' || actie === 'toevoegen') {
+            const wacht = begrenzer.wachttijd([['zoekwoorden_account', account.id]]);
+            if (wacht) return teVeel(res, 'zoekwoorden', wacht, `Zoekwoorden voor ${site.domein}`);
+            begrenzer.tel([['zoekwoorden_account', account.id]]);
+          }
+          let melding;
+          if (actie === 'onderzoek') { const r = await zw.onderzoek(db, ctx, account, siteId, { startwoord: f.startwoord }); melding = `${r.aantal} ideeën gevonden bij "${f.startwoord}".`; }
+          else if (actie === 'toevoegen') { await zw.voegToe(db, ctx, account, siteId, { zoekwoord: f.zoekwoord }); melding = `"${f.zoekwoord}" toegevoegd en gevolgd.`; }
+          else if (actie === 'volgen') { await zw.volg(db, account, siteId, f.id); melding = 'Je volgt dit zoekwoord nu.'; }
+          else { await zw.ontvolg(db, account, siteId, f.id); melding = 'Je volgt dit zoekwoord niet meer.'; }
+          return naar(res, `/sites/${siteId}/zoekwoorden?m=${encodeURIComponent(melding)}`);
+        } catch (e) {
+          if (!(e instanceof acc.Fout)) throw e;
+          return toon(e.status, e.message);
+        }
+      }
+    }
     // Stap 4: siteprofiel en een artikel laten schrijven.
     const sp = pad.match(/^\/sites\/([^/]+)\/(profiel|artikel)$/);
     if (sp) {
@@ -249,7 +278,7 @@ export function maakApp({ db, stripe, mailer, ophalen, model, logger, env = proc
       }
       if (wat === 'artikel') {
         const artikelen = await lijstArtikelen(db, account.id, siteId);
-        if (m === 'GET') return stuur(res, 200, pagina(`Artikel voor ${site.domein}`, artikelForm(site, artikelen), account));
+        if (m === 'GET') return stuur(res, 200, pagina(`Artikel voor ${site.domein}`, artikelForm(site, artikelen, url.searchParams.get('zoekwoord')), account));
         if (m === 'POST') {
           const wacht = begrenzer.wachttijd([['artikel_account', account.id]]);
           if (wacht) return teVeel(res, 'artikel', wacht, `Artikel voor ${site.domein}`);
@@ -371,7 +400,7 @@ function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, melding 
 
   const kaartOver = `<section class="kaart"><h2>Artikelen over</h2><p>Je pakket ${esc(pk.naam)}: ${mv(pk.artikelen_per_maand, 'artikel', 'artikelen')} per maand${pk.artikelen_per_site_per_maand ? `, ${pk.artikelen_per_site_per_maand} per site` : ''}, hooguit ${pk.artikelen_per_site_per_dag} per site per dag.</p>${overzicht.sites.length ? `<ul class="lijst">${overzicht.sites.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${mv(s.dezeMaand, 'artikel', 'artikelen')} deze maand, nog ${s.over} over${s.over ? `, vandaag nog ${s.vandaagNog}` : ''}.</li>`).join('')}</ul>` : ''}</section>`;
 
-  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
+  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
 
   return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartLive}${kaartOver}${kaartSites}`;
 }
@@ -395,9 +424,18 @@ function profielForm(site, p, melding, fout) {
 }
 
 const ARTIKEL_STATUS = { gereserveerd: 'bezig', concept: 'voorstel klaar', teruggeboekt: 'niet gelukt' };
-function artikelForm(site, artikelen) {
+function artikelForm(site, artikelen, zoekwoord = '') {
   const rijen = artikelen.map((a) => `<li>${esc(a.zoekwoord || '')} · ${esc(ARTIKEL_STATUS[a.status] || a.status)}${a.score != null ? ` · score ${esc(a.score)}` : ''}${a.wijziging_id ? ` · <a href="/wijzigingen/${esc(a.wijziging_id)}">bekijk</a>` : ''}${a.status === 'teruggeboekt' && a.melding ? ` · ${esc(a.melding)}` : ''}</li>`).join('');
-  return `<p>Vul een zoekwoord in. Rankcomet kiest een onderwerp, schrijft een artikel met interne links en meta, controleert het en zet het als voorstel klaar. Jij keurt het goed voor het op je site komt. Dit duurt ongeveer een minuut.</p><form method="post" action="/sites/${esc(site.id)}/artikel"><label>Zoekwoord <input name="zoekwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie kosten"></label><button>Schrijf een artikel</button></form><h2>Eerdere artikelen</h2><ul>${rijen || '<li>Nog geen.</li>'}</ul>`;
+  return `<p>Vul een zoekwoord in. Rankcomet kiest een onderwerp, schrijft een artikel met interne links en meta, controleert het en zet het als voorstel klaar. Jij keurt het goed voor het op je site komt. Dit duurt ongeveer een minuut.</p><form method="post" action="/sites/${esc(site.id)}/artikel"><label>Zoekwoord <input name="zoekwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie kosten" value="${esc(zoekwoord || '')}"></label><button>Schrijf een artikel</button></form><h2>Eerdere artikelen</h2><ul>${rijen || '<li>Nog geen.</li>'}</ul>`;
+}
+
+const INTENTIE_TEKST = { informatie: 'wil iets weten', navigatie: 'zoekt een site', commercieel: 'vergelijkt', kopen: 'wil kopen', onbekend: '' };
+function zoekwoordenPagina(site, lijst, pk, melding, fout) {
+  const gevolgd = lijst.filter((z) => z.gevolgd), ideeen = lijst.filter((z) => !z.gevolgd);
+  const rij = (z, knop) => `<li><span class="sitenaam">${esc(z.zoekwoord)}</span> <span class="stil">· ${z.volume != null ? `${z.volume} per maand` : 'volume onbekend'}${z.moeilijkheid != null ? ` · moeilijkheid ${z.moeilijkheid}` : ''}${INTENTIE_TEKST[z.intentie] ? ` · ${INTENTIE_TEKST[z.intentie]}` : ''}</span> ${knop}</li>`;
+  const volgKnop = (z) => `<form method="post" action="/sites/${esc(site.id)}/zoekwoorden/volgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Volgen</button></form>`;
+  const ontvolgKnop = (z) => `<a href="/sites/${esc(site.id)}/artikel?zoekwoord=${encodeURIComponent(z.zoekwoord)}">Artikel laten schrijven</a> <form method="post" action="/sites/${esc(site.id)}/zoekwoorden/ontvolgen"><input type="hidden" name="id" value="${esc(z.id)}"><button class="rustig">Niet meer volgen</button></form>`;
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}<section class="kaart"><h2>Zoekwoorden die je volgt (${gevolgd.length} van ${pk.zoekwoorden_volgen})</h2>${gevolgd.length ? `<ul class="lijst">${gevolgd.map((z) => rij(z, ontvolgKnop(z))).join('')}</ul>` : '<p class="stil">Nog geen. Doe een onderzoek of voeg zelf een zoekwoord toe.</p>'}</section><section class="kaart"><h2>Onderzoek doen</h2><p>Vul een woord in waar je op gevonden wilt worden. Rankcomet zoekt ideeën met het aantal zoekopdrachten per maand in ${esc(site.land === 'BE' ? 'België' : 'Nederland')}. Hooguit ${pk.onderzoeken_per_site_per_dag} onderzoeken per dag.</p><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/onderzoek"><label>Startwoord <input name="startwoord" required minlength="2" maxlength="100" placeholder="bijvoorbeeld: dakisolatie"></label><button>Zoek ideeën</button></form><form method="post" action="/sites/${esc(site.id)}/zoekwoorden/toevoegen"><label>Of voeg zelf een zoekwoord toe <input name="zoekwoord" required minlength="2" maxlength="100"></label><button class="rustig">Toevoegen en volgen</button></form></section><section class="kaart"><h2>Ideeën (${ideeen.length})</h2>${ideeen.length ? `<ul class="lijst">${ideeen.map((z) => rij(z, volgKnop(z))).join('')}</ul>` : '<p class="stil">Nog geen ideeën.</p>'}</section>`;
 }
 
 function bevestigMelding() {

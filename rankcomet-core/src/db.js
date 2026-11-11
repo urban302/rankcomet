@@ -96,6 +96,35 @@ CREATE TABLE IF NOT EXISTS wijzigingen (
   gepubliceerd TEXT NULL
 );
 CREATE INDEX IF NOT EXISTS wijzigingen_site_status_idx ON wijzigingen(site_id, status);
+-- Stap 6: zoekwoorden per site (ideeën uit DataForSEO en eigen woorden), met volgstatus, en de onderzoeken
+-- die zijn gedaan (voor de daggrens en de kosten).
+CREATE TABLE IF NOT EXISTS zoekwoorden (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  zoekwoord TEXT NOT NULL,
+  volume INTEGER NULL,
+  cpc DOUBLE PRECISION NULL,
+  moeilijkheid INTEGER NULL,
+  intentie TEXT NOT NULL DEFAULT 'onbekend',
+  bron TEXT NOT NULL,
+  gevolgd INTEGER NOT NULL DEFAULT 0,
+  aangemaakt TEXT NOT NULL,
+  bijgewerkt TEXT NOT NULL,
+  UNIQUE (site_id, zoekwoord)
+);
+CREATE INDEX IF NOT EXISTS zoekwoorden_site_gevolgd_idx ON zoekwoorden(site_id, gevolgd);
+CREATE TABLE IF NOT EXISTS onderzoeken (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  startwoord TEXT NOT NULL,
+  dag TEXT NOT NULL,
+  aantal INTEGER NOT NULL,
+  kosten_usd DOUBLE PRECISION NOT NULL,
+  aangemaakt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS onderzoeken_site_dag_idx ON onderzoeken(site_id, dag);
 -- Stap 4: klantinformatie per site, de basis voor elk artikel en voor de kwaliteitspoort.
 CREATE TABLE IF NOT EXISTS siteprofielen (
   site_id TEXT PRIMARY KEY REFERENCES sites(id),
@@ -222,7 +251,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

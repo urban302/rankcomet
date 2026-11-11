@@ -1,6 +1,6 @@
 # Rankcomet: vaste regels voor Claude Code
 
-Lees bij de start ook `VOLGENDE-STAPPEN.md`, `docs/CONTEXT-RANKCOMET.md`, `docs/R2-OVERZICHT.md` en `rankcomet-core/installatie.md` (env-namen en aannames A1 tot A56).
+Lees bij de start ook `VOLGENDE-STAPPEN.md`, `docs/CONTEXT-RANKCOMET.md`, `docs/R2-OVERZICHT.md` en `rankcomet-core/installatie.md` (env-namen en aannames A1 tot A59).
 
 ## Wat dit is
 Rankcomet.ai is een AI-SEO-agent voor ondernemers in Nederland en België. Hij koppelt met WordPress (en WooCommerce), stelt verbeteringen en artikelen voor en zet alles klaar als concept. De ondernemer keurt goed, pas dan gaat iets live.
@@ -9,7 +9,7 @@ De repo is een fork van OpenSEO (MIT). Daarnaast staat onze eigen kern in `rankc
 - Node 24 (minimaal 22.5), alleen `node:http`, `node:crypto`, `node:sqlite` en `pg` 8.13.1.
 - Productie draait alleen op Postgres (`RC_DB=pg`). SQLite is alleen voor tests.
 - Accounts, pakketten (Solo €39, Pro €89, Bureau-proef €149, excl. btw), Stripe in testmodus, NL-UI, EU-config voor Azure OpenAI.
-- Van OpenSEO is alleen de code voor zoekwoordonderzoek bewaard, in `vendor-openseo/` (zie de LEESMIJ daar). Die draait nog niet; de kern koppelt hem later via een adapter.
+- Van OpenSEO is alleen de code voor zoekwoordonderzoek bewaard, in `vendor-openseo/` (zie de LEESMIJ daar). Het DataForSEO-deel is overgezet naar `rankcomet-core/src/dataforseo.js`; de rest dient als naslag.
 - De WordPress-plugin staat in `wordpress-plugin/` (PHP). `includes/protocol.php` moet gelijk blijven aan `src/wordpress.js` en `src/velden.js`; een test bewaakt dat.
 
 `AGENTS.md` verwijst alleen naar dit bestand. De OpenSEO-regels (Every App, Cloudflare, `wrangler deploy`) gelden niet meer.
@@ -35,7 +35,7 @@ De repo is een fork van OpenSEO (MIT). Daarnaast staat onze eigen kern in `rankc
 ```
 cd rankcomet-core
 npm ci --offline
-env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 93/93 groen
+env -u RC_DB -u PGPASSWORD npm test          # SQLite, nu 99/99 groen
 RC_DB=pg PG_TEST_HOST=... PG_TEST_USER=... PG_TEST_DB=... PG_TEST_PWFILE=... npm run test:pg
 ```
 - Tests moeten groen blijven op SQLite. Raakt je wijziging de database, draai dan ook de PG-tests (of meld dat er geen test-PG was).

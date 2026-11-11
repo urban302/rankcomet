@@ -12,7 +12,7 @@ In stap 0 (opschonen van de fork) is alleen deze code bewaard. De rest van OpenS
 - Externe pakketten die deze code gebruikt: `zod`, `remeda`, `tldts`, `drizzle-orm`. Die staan niet in `rankcomet-core/vendor/`. Besloten door Erwin: de adapter zet de code zelf om naar gewoon JavaScript, zonder nieuwe pakketten.
 
 ## Houden: zoekwoordonderzoek
-Wordt later via een adapter aan `rankcomet-core` gekoppeld (eigen map, bijvoorbeeld `rankcomet-core/src/zoekwoorden/`).
+In stap 6 is het DataForSEO-deel (core, envelope, labs keyword_ideas, google-ads search_volume) overgezet naar gewoon JavaScript in `rankcomet-core/src/dataforseo.js` en `rankcomet-core/src/zoekwoorden.js`. De rest (SERP, locaties, onderzoeksflow) is naslag voor stap 7 en later.
 
 | Pad (onder `src/`) | Wat |
 |---|---|
