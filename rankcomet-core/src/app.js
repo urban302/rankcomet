@@ -16,6 +16,7 @@ import { schrijfArtikel } from './pijplijn.js';
 import * as zw from './zoekwoorden.js';
 import * as pos from './posities.js';
 import * as gsc from './gsc.js';
+import * as opf from './opfrissen.js';
 import { lijstArtikelen, artikelenOverzicht, huidigeMaand } from './artikelen.js';
 import { laadSleutel } from './geheimen.js';
 
@@ -274,6 +275,34 @@ export function maakApp({ db, stripe, mailer, ophalen, model, dataforseo, google
         }
       }
     }
+    // Stap 9: contentrefresh: verouderde pagina's en opfrisvoorstellen.
+    const om = pad.match(/^\/sites\/([^/]+)\/opfrissen(?:\/(instellingen|voorstel))?$/);
+    if (om) {
+      const [, siteId, actie] = om;
+      const site = await sites.haalSite(db, account.id, siteId);
+      if (!site) return stuur(res, 404, pagina('Niet gevonden', '<p>Deze site bestaat niet.</p>', account));
+      const toon = async (status = 200, fout = null, extra = '') => {
+        let lijst = [], drempels = await opf.instellingen(db, account.id, siteId);
+        try { lijst = await opf.kandidaten(db, ctx, account, siteId); } catch (e) { if (!(e instanceof acc.Fout)) throw e; fout = fout || e.message; }
+        return stuur(res, status, pagina(`Opfrissen: ${site.domein}`, opfrissenPagina(site, lijst, drempels, await opf.effect(db, account.id, siteId), url.searchParams.get('m'), fout, extra), account));
+      };
+      if (m === 'GET' && !actie) return toon();
+      if (m === 'POST' && actie) {
+        const f = formulier(await leesBody(req));
+        try {
+          if (actie === 'instellingen') { await opf.bewaarInstellingen(db, account.id, siteId, f); return naar(res, `/sites/${siteId}/opfrissen?m=${encodeURIComponent('Drempels opgeslagen.')}`); }
+          const wacht = begrenzer.wachttijd([['artikel_account', account.id]]);
+          if (wacht) return teVeel(res, 'opfrissen', wacht, `Opfrissen: ${site.domein}`);
+          begrenzer.tel([['artikel_account', account.id]]);
+          const r = await opf.maakVoorstel(db, ctx, account, siteId, { doelId: f.doel_id });
+          return naar(res, `/wijzigingen/${r.wijziging.id}`);
+        } catch (e) {
+          if (!(e instanceof acc.Fout)) throw e;
+          const extra = e.profiel ? `<p><a href="/sites/${esc(siteId)}/profiel">Vul het siteprofiel in</a></p>` : e.bevindingen ? `<ul>${e.bevindingen.map((b) => `<li>${esc(b.tekst)}</li>`).join('')}</ul>` : '';
+          return toon(e.status, e.message, extra);
+        }
+      }
+    }
     // Stap 6: zoekwoorden per site: onderzoeken, volgen, zelf toevoegen.
     const zm = pad.match(/^\/sites\/([^/]+)\/zoekwoorden(?:\/(onderzoek|toevoegen|volgen|ontvolgen|controleren))?$/);
     if (zm) {
@@ -444,7 +473,7 @@ function dashboard({ account, pk, sites: lijst, wijzigingen, overzicht, posities
 
   const kaartGsc = searchConsole.length ? `<section class="kaart"><h2>Google Search Console</h2><ul class="lijst">${searchConsole.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span>: ${s.status === 'gekoppeld' && s.periode_start ? `${s.klikken} klikken en ${s.vertoningen} vertoningen van ${esc(s.periode_start)} tot ${esc(s.periode_eind)}` : s.status === 'verbroken' ? 'de koppeling is verbroken, koppel opnieuw' : 'nog geen cijfers'}. <a href="/sites/${esc(s.site_id)}/search-console">Bekijk</a></li>`).join('')}</ul></section>` : '';
 
-  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/search-console">Search Console</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
+  const kaartSites = `<section class="kaart"><h2>Je sites</h2>${lijst.length ? `<ul class="lijst">${lijst.map((s) => `<li><span class="sitenaam">${esc(s.domein)}</span> <span class="stil">· ${esc(s.platform)} · ${esc(s.land)}</span><br>${s.bevestigd ? `<span class="links"><a href="/sites/${esc(s.id)}/zoekwoorden">Zoekwoorden</a><a href="/sites/${esc(s.id)}/search-console">Search Console</a><a href="/sites/${esc(s.id)}/opfrissen">Opfrissen</a><a href="/sites/${esc(s.id)}/artikel">Artikel laten schrijven</a><a href="/sites/${esc(s.id)}/profiel">Profiel</a><a href="/sites/${esc(s.id)}/plugin">Plugin</a></span>` : `<a href="/sites/${esc(s.id)}/koppelen">Nog koppelen: laat zien dat deze site van jou is</a>`}</li>`).join('')}</ul>` : '<p>Nog geen sites.</p>'}<p>${lijst.length} van ${pk.max_sites} ${pk.max_sites === 1 ? 'site' : 'sites'} in gebruik. <a href="/sites/nieuw">Site toevoegen</a></p></section>`;
 
   return `${account.geverifieerd ? '' : bevestigMelding()}${melding ? `<p role="status">${esc(melding)}</p>` : ''}${kaartWacht}${kaartMaand}${kaartPosities}${kaartGsc}${kaartLive}${kaartOver}${kaartSites}`;
 }
@@ -497,6 +526,14 @@ function searchConsolePagina(site, k, properties, beschikbaar, melding, fout) {
   if (k.status === 'verbroken') return `${kop}<section class="kaart"><p role="alert">${esc(k.melding || 'De koppeling is verbroken.')}</p><form method="post" action="/sites/${esc(site.id)}/search-console/start"><button>Opnieuw koppelen</button></form><form method="post" action="/sites/${esc(site.id)}/search-console/verbreken"><button class="rustig">Koppeling verwijderen</button></form></section>`;
   const rijen = k.paginas.map((p) => `<li><span class="sitenaam">${esc(p.pagina.replace(/^https?:\/\/[^/]+/, '') || '/')}</span> <span class="stil">· ${p.klikken} klikken · ${p.vertoningen} vertoningen${p.positie != null ? ` · positie ${p.positie.toFixed(1)}` : ''}</span></li>`).join('');
   return `${kop}<section class="kaart"><h2>Gekoppeld: ${esc(k.property)}</h2><p>${k.periode_start ? `Cijfers van ${esc(k.periode_start)} tot ${esc(k.periode_eind)}: ${k.totaal.klikken} klikken en ${k.totaal.vertoningen} vertoningen. Rankcomet haalt ze elke dag op.` : 'Nog geen cijfers opgehaald.'}</p><form method="post" action="/sites/${esc(site.id)}/search-console/ververs"><button class="rustig">Nu ophalen</button></form></section><section class="kaart"><h2>Pagina's</h2>${rijen ? `<ul class="lijst">${rijen}</ul>` : '<p class="stil">Nog geen cijfers. Google heeft voor deze periode niets voor deze property, of de site is nieuw.</p>'}</section><section class="kaart"><h2>Koppeling verbreken</h2><p>Dan trekken we de toegang bij Google in en verwijderen we alle Google-gegevens van deze site.</p><form method="post" action="/sites/${esc(site.id)}/search-console/verbreken"><button class="rustig">Verbreken</button></form></section>`;
+}
+
+function opfrissenPagina(site, lijst, d, effect, melding, fout, extra = '') {
+  const kop = `${fout ? `<p role="alert">${esc(fout)}</p>${extra}` : ''}${melding ? `<p role="status">${esc(melding)}</p>` : ''}`;
+  const kandidaat = (k) => `<li><span class="sitenaam">${esc(k.titel)}</span> <span class="stil">· ${esc(k.url.replace(/^https?:\/\/[^/]+/, '') || '/')} · laatst gewijzigd ${k.leeftijdDagen} dagen geleden</span><br>${esc(k.redenen.join('; '))}${k.alVoorgesteld ? ' <span class="stil">· al een voorstel gemaakt</span>' : ` <form method="post" action="/sites/${esc(site.id)}/opfrissen/voorstel"><input type="hidden" name="doel_id" value="${esc(k.doelId)}"><button class="rustig">Opfrisvoorstel maken</button></form>`}</li>`;
+  const STATUS = { bezig: 'bezig', voorstel: 'voorstel gemaakt', mislukt: 'niet gelukt' };
+  const rij = (e) => `<li><span class="sitenaam">${esc(e.url.replace(/^https?:\/\/[^/]+/, '') || '/')}</span> <span class="stil">· ${esc(e.aangemaakt.slice(0, 10))} · ${esc(e.voorstel_status === 'gepubliceerd' ? 'staat op je site' : e.voorstel_status === 'voorstel' ? 'wacht op jou' : e.voorstel_status === 'afgewezen' ? 'niet gedaan' : STATUS[e.status] || e.status)}</span>${e.voorstel_status === 'gepubliceerd' ? `<br>${e.positie_voor != null ? `positie ${e.positie_voor} toen, ${e.positieNu != null ? e.positieNu : 'niet in de top 20'} nu` : ''}${e.klikken_voor != null ? `${e.positie_voor != null ? ' · ' : ''}${e.klikken_voor} klikken toen, ${e.klikkenNu != null ? e.klikkenNu : 'nog geen cijfers'} nu` : ''}` : ''}${e.wijziging_id ? ` · <a href="/wijzigingen/${esc(e.wijziging_id)}">bekijk</a>` : ''}${e.status === 'mislukt' && e.melding ? `<br><small>${esc(e.melding)}</small>` : ''}</li>`;
+  return `${kop}<section class="kaart"><h2>Pagina's die een opfrisbeurt verdienen (${lijst.length})</h2><p class="stil">Pagina's ouder dan ${d.min_leeftijd_dagen} dagen die minstens ${d.positie_daling} plaatsen zakten in Google of ${d.klik_daling_pct}% klikken verloren. Rankcomet maakt een voorstel; jij keurt het goed voor het op je site komt.</p>${lijst.length ? `<ul class="lijst">${lijst.map(kandidaat).join('')}</ul>` : '<p class="stil">Niets. Volg je zoekwoorden en koppel Search Console, dan ziet Rankcomet welke pagina\'s terrein verliezen.</p>'}</section><section class="kaart"><h2>Effect van eerdere opfrisbeurten</h2>${effect.length ? `<ul class="lijst">${effect.map(rij).join('')}</ul>` : '<p class="stil">Nog geen.</p>'}</section><section class="kaart"><h2>Drempels</h2><form method="post" action="/sites/${esc(site.id)}/opfrissen/instellingen"><label>Minimale leeftijd in dagen <input name="min_leeftijd_dagen" inputmode="numeric" value="${d.min_leeftijd_dagen}"><small>30 tot 1095</small></label><label>Zakken in Google (plaatsen) <input name="positie_daling" inputmode="numeric" value="${d.positie_daling}"><small>1 tot 50</small></label><label>Minder klikken (procent) <input name="klik_daling_pct" inputmode="numeric" value="${d.klik_daling_pct}"><small>10 tot 90</small></label><button class="rustig">Opslaan</button></form></section>`;
 }
 
 function bevestigMelding() {

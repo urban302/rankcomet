@@ -97,7 +97,7 @@ export async function koppeling(db, accountId, siteId) {
   await eigenSite(db, accountId, siteId);
   const k = (await db.query('SELECT property, status, melding, gekoppeld, laatst_opgehaald, periode_start, periode_eind FROM gsc_koppelingen WHERE site_id = $1 AND account_id = $2', [siteId, accountId])).rows[0] || null;
   if (!k) return null;
-  const paginas = (await db.query('SELECT pagina, klikken, vertoningen, ctr, positie FROM gsc_cijfers WHERE site_id = $1 AND account_id = $2 ORDER BY klikken DESC, vertoningen DESC LIMIT 100', [siteId, accountId])).rows
+  const paginas = (await db.query('SELECT pagina, klikken, vertoningen, ctr, positie FROM gsc_cijfers WHERE site_id = $1 AND account_id = $2 AND periode_eind = $3 ORDER BY klikken DESC, vertoningen DESC LIMIT 100', [siteId, accountId, k.periode_eind || ''])).rows
     .map((r) => ({ ...r, klikken: Number(r.klikken), vertoningen: Number(r.vertoningen), ctr: Number(r.ctr), positie: r.positie == null ? null : Number(r.positie) }));
   return { ...k, paginas, totaal: { klikken: paginas.reduce((t, p) => t + p.klikken, 0), vertoningen: paginas.reduce((t, p) => t + p.vertoningen, 0) } };
 }
@@ -115,7 +115,10 @@ export async function ververs(db, ctx, account, siteId, { forceer = false, tijd 
   const periode = { start: begin.toISOString().slice(0, 10), eind: eind.toISOString().slice(0, 10) };
   const rijen = await ctx.google.zoekprestaties(await toegang(db, ctx, account, siteId), k.property, periode);
   await db.transactie(async (tx) => {
-    await tx.query('DELETE FROM gsc_cijfers WHERE site_id = $1', [siteId]);
+    // Geschiedenis blijft staan (voor contentrefresh): alleen dezelfde periode vervangen, en ouder dan 120 dagen opruimen [A70].
+    await tx.query('DELETE FROM gsc_cijfers WHERE site_id = $1 AND periode_eind = $2', [siteId, periode.eind]);
+    const grens = new Date(tijd); grens.setUTCDate(grens.getUTCDate() - 120);
+    await tx.query('DELETE FROM gsc_cijfers WHERE site_id = $1 AND periode_eind < $2', [siteId, grens.toISOString().slice(0, 10)]);
     for (const r of rijen) await tx.query('INSERT INTO gsc_cijfers (id, account_id, site_id, pagina, klikken, vertoningen, ctr, positie, periode_start, periode_eind, aangemaakt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
       [randomUUID(), account.id, siteId, r.pagina.slice(0, 2000), r.klikken, r.vertoningen, r.ctr, r.positie, periode.start, periode.eind, nu()]);
     await tx.query('UPDATE gsc_koppelingen SET laatst_opgehaald = $1, periode_start = $2, periode_eind = $3, bijgewerkt = $4 WHERE site_id = $5', [dag, periode.start, periode.eind, nu(), siteId]);
@@ -152,6 +155,17 @@ export async function verbreek(db, ctx, account, siteId) {
 
 // Voor het dashboard: per gekoppelde site de klikken en vertoningen van de laatste periode.
 export async function samenvatting(db, accountId) {
-  const rijen = (await db.query("SELECT k.site_id, s.domein, k.status, k.periode_start, k.periode_eind, (SELECT COALESCE(SUM(c.klikken), 0) FROM gsc_cijfers c WHERE c.site_id = k.site_id) AS klikken, (SELECT COALESCE(SUM(c.vertoningen), 0) FROM gsc_cijfers c WHERE c.site_id = k.site_id) AS vertoningen FROM gsc_koppelingen k JOIN sites s ON s.id = k.site_id WHERE k.account_id = $1 ORDER BY s.aangemaakt", [accountId])).rows;
+  const rijen = (await db.query("SELECT k.site_id, s.domein, k.status, k.periode_start, k.periode_eind, (SELECT COALESCE(SUM(c.klikken), 0) FROM gsc_cijfers c WHERE c.site_id = k.site_id AND c.periode_eind = k.periode_eind) AS klikken, (SELECT COALESCE(SUM(c.vertoningen), 0) FROM gsc_cijfers c WHERE c.site_id = k.site_id AND c.periode_eind = k.periode_eind) AS vertoningen FROM gsc_koppelingen k JOIN sites s ON s.id = k.site_id WHERE k.account_id = $1 ORDER BY s.aangemaakt", [accountId])).rows;
   return rijen.map((r) => ({ ...r, klikken: Number(r.klikken), vertoningen: Number(r.vertoningen) }));
+}
+
+// Voor contentrefresh: klikken per pagina in de laatste periode en in de periode van ongeveer 28 dagen eerder.
+export async function klikkenPerPagina(db, accountId, siteId) {
+  const k = (await db.query('SELECT periode_eind FROM gsc_koppelingen WHERE site_id = $1 AND account_id = $2', [siteId, accountId])).rows[0];
+  const leeg = { periode: null, vorigePeriode: null, huidig: {}, vorige: {} };
+  if (!k?.periode_eind) return leeg;
+  const vorigeEind = new Date(`${k.periode_eind}T12:00:00Z`); vorigeEind.setUTCDate(vorigeEind.getUTCDate() - PERIODE_DAGEN);
+  const vorige = (await db.query('SELECT periode_eind FROM gsc_cijfers WHERE site_id = $1 AND periode_eind <= $2 ORDER BY periode_eind DESC LIMIT 1', [siteId, vorigeEind.toISOString().slice(0, 10)])).rows[0]?.periode_eind || null;
+  const lees = async (eind) => eind ? Object.fromEntries((await db.query('SELECT pagina, klikken FROM gsc_cijfers WHERE site_id = $1 AND account_id = $2 AND periode_eind = $3', [siteId, accountId, eind])).rows.map((r) => [r.pagina.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[?#].*$/, '').replace(/\/$/, ''), Number(r.klikken)])) : {};
+  return { periode: k.periode_eind, vorigePeriode: vorige, huidig: await lees(k.periode_eind), vorige: await lees(vorige) };
 }

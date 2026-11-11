@@ -177,6 +177,36 @@ CREATE TABLE IF NOT EXISTS gsc_cijfers (
   aangemaakt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gsc_cijfers_site_idx ON gsc_cijfers(site_id);
+CREATE INDEX IF NOT EXISTS gsc_cijfers_site_periode_idx ON gsc_cijfers(site_id, periode_eind);
+-- Stap 9: contentrefresh. Drempels per site en de gemaakte opfrisvoorstellen met de cijfers van toen (voor het effect).
+CREATE TABLE IF NOT EXISTS refresh_instellingen (
+  site_id TEXT PRIMARY KEY REFERENCES sites(id),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  min_leeftijd_dagen INTEGER NOT NULL,
+  positie_daling INTEGER NOT NULL,
+  klik_daling_pct INTEGER NOT NULL,
+  bijgewerkt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS opfrissingen (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  site_id TEXT NOT NULL REFERENCES sites(id),
+  doel_type TEXT NOT NULL,
+  doel_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  zoekwoord TEXT NULL,
+  reden TEXT NOT NULL,
+  status TEXT NOT NULL,
+  melding TEXT NULL,
+  wijziging_id TEXT NULL,
+  score INTEGER NULL,
+  positie_voor INTEGER NULL,
+  klikken_voor INTEGER NULL,
+  dag TEXT NOT NULL,
+  aangemaakt TEXT NOT NULL,
+  bijgewerkt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS opfrissingen_site_dag_idx ON opfrissingen(site_id, dag);
 -- Stap 4: klantinformatie per site, de basis voor elk artikel en voor de kwaliteitspoort.
 CREATE TABLE IF NOT EXISTS siteprofielen (
   site_id TEXT PRIMARY KEY REFERENCES sites(id),
@@ -303,7 +333,7 @@ async function voegKolomToe(db, tabel, kolom, definitie) {
 
 // Alleen voor tests: maak alle Rankcomet-tabellen leeg (alleen eigen tabellen).
 export async function leegVoorTest(db) {
-  for (const t of ['gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
+  for (const t of ['opfrissingen', 'refresh_instellingen', 'gsc_cijfers', 'gsc_koppelingen', 'oauth_staten', 'posities', 'onderzoeken', 'zoekwoorden', 'siteprofielen', 'wijziging_velden', 'wijzigingen', 'eenmalige_tokens', 'artikelen', 'logregels', 'stripe_events', 'geheimen', 'wachtlijst', 'sites', 'sessies', 'accounts', 'bureaus']) {
     await db.query(`DELETE FROM ${t}`);
   }
 }

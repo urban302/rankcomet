@@ -12,10 +12,10 @@ import { clientVoorSite, stelVoor } from './wijzigingen.js';
 import { beoordeel } from './kwaliteit.js';
 
 const PROMPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
-const prompt = (naam, velden, map = PROMPTS) => readFileSync(path.join(map, `${naam}.md`), 'utf8').replace(/\{\{(\w+)\}\}/g, (_, k) => String(velden[k] ?? ''));
+export const prompt = (naam, velden, map = PROMPTS) => readFileSync(path.join(map, `${naam}.md`), 'utf8').replace(/\{\{(\w+)\}\}/g, (_, k) => String(velden[k] ?? ''));
 
 // Eén vraag aan het model, antwoord als JSON-object. Alles wat geen object is, is een fout.
-async function vraagJson(model, systeem, gebruiker, logger, stap) {
+export async function vraagJson(model, systeem, gebruiker, logger, stap) {
   let antwoord;
   try { antwoord = await model.chat([{ role: 'system', content: systeem }, { role: 'user', content: gebruiker }], { json: true }); }
   catch (e) { await logger?.log('fout', `schrijfhulp mislukt stap=${stap} ${e.name}${e.status ? ' status=' + e.status : ''}`); throw new Fout('De schrijfhulp is even niet bereikbaar. Probeer het later opnieuw.', 503); }
@@ -27,8 +27,9 @@ async function vraagJson(model, systeem, gebruiker, logger, stap) {
   return data;
 }
 
-const tekst = (v, max) => (typeof v === 'string' ? v : '').slice(0, max);
-const paginaLijst = (paginas) => paginas.length ? paginas.map((p) => `- ${p.titel} | ${p.url}`).join('\n') : '- (nog geen pagina\'s)';
+export const knip = (v, max) => (typeof v === 'string' ? v : '').slice(0, max);
+const tekst = knip;
+export const paginaLijst = (paginas) => paginas.length ? paginas.map((p) => `- ${p.titel} | ${p.url}`).join('\n') : '- (nog geen pagina\'s)';
 
 export async function schrijfArtikel(db, ctx, account, siteId, { zoekwoord }) {
   zoekwoord = String(zoekwoord || '').trim().replace(/\s+/g, ' ');

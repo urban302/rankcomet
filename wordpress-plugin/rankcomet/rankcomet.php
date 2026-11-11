@@ -105,7 +105,7 @@ function rankcomet_rest_paginas(): array {
     if (class_exists('WooCommerce')) { $types[] = 'product'; }
     $lijst = [];
     foreach (get_posts(['post_type' => $types, 'post_status' => 'publish', 'numberposts' => 200, 'orderby' => 'modified', 'order' => 'DESC']) as $p) {
-        $lijst[] = ['id' => (string) $p->ID, 'type' => $p->post_type, 'titel' => $p->post_title, 'url' => get_permalink($p)];
+        $lijst[] = ['id' => (string) $p->ID, 'type' => $p->post_type, 'titel' => $p->post_title, 'url' => get_permalink($p), 'gewijzigd' => get_post_modified_time('c', true, $p) ?: null];
     }
     return ['paginas' => $lijst];
 }
