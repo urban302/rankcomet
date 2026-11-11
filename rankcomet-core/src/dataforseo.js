@@ -10,6 +10,8 @@ const MAX_HERHALINGEN = 2;
 
 // [A57] Alleen Nederland en België (A16), Nederlandstalig. Locatiecodes van DataForSEO.
 export const LANDEN = { NL: { location_code: 2528, language_code: 'nl' }, BE: { location_code: 2056, language_code: 'nl' } };
+// [A60] Rank tracking kijkt 20 resultaten diep (2 pagina's van 10, DataForSEO rekent per pagina), desktop.
+export const RANKCHECK_DIEPTE = 20;
 
 // Taakstatussen die een storing bij DataForSEO betekenen (uit envelope.ts), niet een fout van ons.
 const STORING = new Set([40101, 40103, 50401, 50402]);
@@ -83,6 +85,16 @@ export function maakDataforseo(env = process.env, fetchFn = globalThis.fetch, lo
           intentie: normaliseerIntentie(i.search_intent_info?.main_intent),
         })),
       };
+    },
+    // Positie van een domein voor een zoekwoord (SERP organic live). Alleen organische resultaten tellen, met
+    // rank_group (positie tussen de organische resultaten, wat een klant 'mijn positie' noemt); een subdomein telt mee.
+    async positie({ zoekwoord, land = 'NL', domein, diepte = RANKCHECK_DIEPTE }) {
+      const loc = LANDEN[land]; if (!loc) throw new Fout('Kies een land uit de lijst.', 400);
+      const { result, kostenUsd } = await post('/v3/serp/google/organic/live/advanced', { keyword: zoekwoord, ...loc, device: 'desktop', os: 'windows', depth: Math.min(100, Math.max(10, diepte)) });
+      const items = result?.[0]?.items || [];
+      const doel = String(domein).toLowerCase();
+      const treffer = items.find((i) => i?.type === 'organic' && typeof i.domain === 'string' && (i.domain.toLowerCase() === doel || i.domain.toLowerCase().endsWith('.' + doel)));
+      return { kostenUsd, positie: treffer ? (getal(treffer.rank_group) ?? getal(treffer.rank_absolute)) : null, url: treffer?.url ?? null, aantal: items.filter((i) => i?.type === 'organic').length };
     },
     // Zoekvolumes voor eigen zoekwoorden (Google Ads search_volume). Zoekwoorden die Google Ads weigert, worden overgeslagen.
     async zoekvolumes({ zoekwoorden, land = 'NL' }) {

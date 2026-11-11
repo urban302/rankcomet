@@ -102,7 +102,7 @@ export function nepPlugin(internet, domein, sleutel, { doelen = {}, seo = 'yoast
 
 // Nep-DataForSEO: een nep-fetch die DataForSEO-antwoorden nabootst, door de echte client (dataforseo.js).
 // `ideeen(startwoord)` en `volumes(zoekwoorden)` leveren de items; `antwoord` kan een heel antwoord afdwingen.
-export function nepDataforseo({ ideeen = () => [], volumes = () => ({}), kosten = 0.0101 } = {}) {
+export function nepDataforseo({ ideeen = () => [], volumes = () => ({}), serp = () => [], kosten = 0.0101 } = {}) {
   const dfs = { aanroepen: [], antwoord: null, httpStatus: 200 };
   const fetchFn = async (url, init) => {
     const taak = JSON.parse(init.body)[0];
@@ -111,7 +111,9 @@ export function nepDataforseo({ ideeen = () => [], volumes = () => ({}), kosten 
     if (dfs.httpStatus !== 200) return { status: dfs.httpStatus, ok: false, json: async () => ({}) };
     const body = dfs.antwoord ? dfs.antwoord(pad, taak) : pad.includes('keyword_ideas')
       ? { status_code: 20000, tasks: [{ status_code: 20000, cost: kosten, result: [{ items: ideeen(taak.keywords[0], taak) }] }] }
-      : { status_code: 20000, tasks: [{ status_code: 20000, cost: kosten, result: volumes(taak.keywords, taak) }] };
+      : pad.includes('/serp/')
+        ? { status_code: 20000, tasks: [{ status_code: 20000, cost: kosten, result: [{ items: serp(taak.keyword, taak) }] }] }
+        : { status_code: 20000, tasks: [{ status_code: 20000, cost: kosten, result: volumes(taak.keywords, taak) }] };
     return { status: 200, ok: true, json: async () => body };
   };
   dfs.client = maakDataforseo(TEST_ENV, fetchFn);

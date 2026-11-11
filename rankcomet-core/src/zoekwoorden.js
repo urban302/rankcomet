@@ -38,7 +38,7 @@ async function bewaar(tx, accountId, siteId, items, bron) {
   }
   // Opruimen: niet-gevolgde ideeën boven het maximum, oudste eerst (OFFSET zonder LIMIT verschilt per dialect, dus in JS).
   const nietGevolgd = (await tx.query('SELECT id FROM zoekwoorden WHERE site_id = $1 AND gevolgd = 0 ORDER BY bijgewerkt DESC, zoekwoord', [siteId])).rows;
-  for (const r of nietGevolgd.slice(MAX_BEWAARD_PER_SITE)) await tx.query('DELETE FROM zoekwoorden WHERE id = $1', [r.id]);
+  for (const r of nietGevolgd.slice(MAX_BEWAARD_PER_SITE)) { await tx.query('DELETE FROM posities WHERE zoekwoord_id = $1', [r.id]); await tx.query('DELETE FROM zoekwoorden WHERE id = $1', [r.id]); }
 }
 
 // Onderzoek: ideeën bij een startwoord ophalen en bewaren. Begrensd per site per dag (pakketten.json).
