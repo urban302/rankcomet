@@ -9,7 +9,7 @@ const GEHEIM = TEST_ENV.RC_STRIPE_WEBHOOK_SECRET;
 const stuurEvent = (event, kop) => { const p = JSON.stringify(event); return fetch(app.basis + '/stripe/webhook', { method: 'POST', headers: { 'stripe-signature': kop ?? tekenPayload(p, GEHEIM), 'content-type': 'application/json' }, body: p }); };
 
 test('checkout-sessie via gemockte client met juiste prijs en account', async () => {
-  const c = await registreerEnLogin(app.basis, 'betaal@test.invalid');
+  const c = await registreerEnLogin(app, 'betaal@test.invalid');
   const r = await post(app.basis, '/abonnement/checkout', { pakket: 'pro' }, c);
   assert.equal(r.status, 303); assert.match(r.headers.get('location'), /^https:\/\/checkout\.stripe\.test\//);
   const p = app.stripe.aanroepen.at(-1);

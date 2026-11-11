@@ -6,6 +6,8 @@ import * as sites from './sites.js';
 import { laadMerk, laadPakketten } from './config.js';
 import { prijsTekst } from './pakketten.js';
 import { maakCheckout, verwerkWebhook } from './stripe.js';
+import { maakBegrenzer, STANDAARD_GRENZEN } from './grens.js';
+import { verificatieMail, herstelMail } from './mail.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -29,8 +31,26 @@ function leesBody(req, max = 1024 * 1024) {
 const formulier = (t) => Object.fromEntries(new URLSearchParams(t));
 const cookie = (req, naam) => { const m = (req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${naam}=([^;]+)`)); return m ? decodeURIComponent(m[1]) : null; };
 
-export function maakApp({ db, stripe, logger, env = process.env, veiligeCookie = true }) {
+export function maakApp({ db, stripe, mailer, logger, env = process.env, veiligeCookie = true, grenzen = STANDAARD_GRENZEN }) {
   const COOKIE = 'rc_sessie';
+  const begrenzer = maakBegrenzer(grenzen);
+  // [A33] Achter de reverse proxy komt elk verzoek van 127.0.0.1. Met RC_VERTROUW_PROXY=1 gebruiken we het
+  // laatste adres uit X-Forwarded-For (dat zet onze eigen proxy). Zonder die instelling negeren we de header,
+  // want een bezoeker kan hem zelf invullen.
+  const ipVan = (req) => {
+    if (env.RC_VERTROUW_PROXY === '1') { const x = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim(); if (x) return x; }
+    return req.socket.remoteAddress || 'onbekend';
+  };
+  const teVeel = async (res, soort, seconden, titel) => {
+    await logger.log('info', `te veel pogingen soort=${soort}`);
+    const minuten = Math.max(1, Math.ceil(seconden / 60));
+    return stuur(res, 429, pagina(titel, `<p role="alert">Te veel pogingen. Probeer het over ${minuten} ${minuten === 1 ? 'minuut' : 'minuten'} opnieuw.</p>`), { 'retry-after': String(seconden) });
+  };
+  // Mail sturen mag mislukken zonder dat de rest misgaat. We loggen alleen de soort en het fouttype.
+  const mail = async (soort, aan, inhoud, accountId) => {
+    try { await mailer.stuur({ aan, ...inhoud }); await logger.log('info', `mail verstuurd soort=${soort} account=${accountId}`); return true; }
+    catch (e) { await logger.log('fout', `mail mislukt soort=${soort} account=${accountId} ${e.name}`); return false; }
+  };
   const zetCookie = (res, w, maxAge) => res.setHeader('set-cookie', `${COOKIE}=${w}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${veiligeCookie ? '; Secure' : ''}`);
   const stuur = (res, status, html, kop = {}) => { res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin', ...kop }); res.end(html); };
   const json = (res, status, o) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
@@ -58,8 +78,18 @@ export function maakApp({ db, stripe, logger, env = process.env, veiligeCookie =
     if (m === 'GET' && pad === '/registreren') return stuur(res, 200, pagina('Account aanmaken', inlogForm('/registreren', 'Account aanmaken', url.searchParams.get('fout'))));
     if (m === 'POST' && (pad === '/inloggen' || pad === '/registreren')) {
       const f = formulier(await leesBody(req));
+      const titel = pad === '/inloggen' ? 'Inloggen' : 'Account aanmaken';
+      const email = acc.normaliseerEmail(f.email), ip = ipVan(req);
+      const paren = pad === '/inloggen' ? [['login_ip', ip], ['login_email', email]] : [['registreren_ip', ip], ['registreren_email', email]];
+      const wacht = begrenzer.wachttijd(paren);
+      if (wacht) return teVeel(res, pad.slice(1), wacht, titel);
+      // Aanmelden telt elke poging; inloggen alleen mislukte pogingen (zie hieronder).
+      if (pad === '/registreren') begrenzer.tel(paren);
       try {
-        if (pad === '/registreren') await acc.registreer(db, f.email, f.wachtwoord);
+        if (pad === '/registreren') {
+          const nieuw = await acc.registreer(db, f.email, f.wachtwoord);
+          await mail('verificatie', nieuw.email, verificatieMail(await acc.maakVerificatieToken(db, nieuw.id)), nieuw.id);
+        }
         const s = await acc.login(db, f.email, f.wachtwoord);
         zetCookie(res, s.token, 7 * 86400);
         await logger.log('info', `inloggen gelukt account=${s.accountId}`);
@@ -67,7 +97,47 @@ export function maakApp({ db, stripe, logger, env = process.env, veiligeCookie =
       } catch (e) {
         if (!(e instanceof acc.Fout)) throw e;
         await logger.log('info', `inloggen mislukt status=${e.status}`);
-        return stuur(res, e.status, pagina(pad === '/inloggen' ? 'Inloggen' : 'Account aanmaken', inlogForm(pad, pad === '/inloggen' ? 'Inloggen' : 'Account aanmaken', e.message)));
+        if (pad === '/inloggen') begrenzer.tel(paren);
+        return stuur(res, e.status, pagina(titel, inlogForm(pad, titel, e.message)));
+      }
+    }
+    if (m === 'GET' && pad === '/wachtwoord-vergeten') return stuur(res, 200, pagina('Wachtwoord vergeten', vergetenForm()));
+    if (m === 'POST' && pad === '/wachtwoord-vergeten') {
+      const email = acc.normaliseerEmail(formulier(await leesBody(req)).email);
+      const paren = [['herstel_ip', ipVan(req)], ['herstel_email', email]];
+      const wacht = begrenzer.wachttijd(paren);
+      if (wacht) return teVeel(res, 'herstel', wacht, 'Wachtwoord vergeten');
+      begrenzer.tel(paren);
+      const r = await acc.wachtwoordVergeten(db, email);
+      if (r) await mail('herstel', r.email, herstelMail(r.token), r.accountId);
+      // Altijd hetzelfde antwoord, zodat niemand kan uitzoeken welke e-mailadressen een account hebben.
+      return stuur(res, 200, pagina('Kijk in je mail', '<p>Hoort er een account bij dit e-mailadres? Dan krijg je binnen een paar minuten een mail met een link. Met die link kies je een nieuw wachtwoord. De link werkt een uur.</p><p>Geen mail gekregen? Kijk ook in je map met ongewenste mail.</p>'));
+    }
+    if (m === 'GET' && pad === '/wachtwoord-herstellen') return stuur(res, 200, pagina('Nieuw wachtwoord kiezen', herstelForm(url.searchParams.get('token'))));
+    if (m === 'POST' && pad === '/wachtwoord-herstellen') {
+      const f = formulier(await leesBody(req));
+      try {
+        await acc.herstelWachtwoord(db, f.token, f.wachtwoord);
+        zetCookie(res, '', 0);
+        return stuur(res, 200, pagina('Wachtwoord gewijzigd', '<p>Je wachtwoord is gewijzigd. Je bent overal uitgelogd.</p><p><a href="/inloggen">Log in met je nieuwe wachtwoord</a></p>'));
+      } catch (e) {
+        if (!(e instanceof acc.Fout)) throw e;
+        const inhoud = e.linkOngeldig ? `<p role="alert">${esc(e.message)}</p><p><a href="/wachtwoord-vergeten">Nieuwe link aanvragen</a></p>` : herstelForm(f.token, e.message);
+        return stuur(res, e.status, pagina('Nieuw wachtwoord kiezen', inhoud));
+      }
+    }
+    // De link in de mail opent een pagina met een knop. Pas de knop bevestigt, zodat een virusscanner
+    // die de link alvast opent het token niet opmaakt.
+    if (m === 'GET' && pad === '/email-bevestigen') {
+      return stuur(res, 200, pagina('E-mailadres bevestigen', `<form method="post" action="/email-bevestigen"><input type="hidden" name="token" value="${esc(url.searchParams.get('token'))}"><button>Bevestig mijn e-mailadres</button></form>`, account));
+    }
+    if (m === 'POST' && pad === '/email-bevestigen') {
+      try {
+        await acc.bevestigEmail(db, formulier(await leesBody(req)).token);
+        return stuur(res, 200, pagina('E-mailadres bevestigd', `<p>Je e-mailadres is bevestigd. Je kunt nu je site koppelen.</p><p><a href="${account ? '/sites/nieuw' : '/inloggen'}">${account ? 'Site toevoegen' : 'Inloggen'}</a></p>`, account));
+      } catch (e) {
+        if (!(e instanceof acc.Fout)) throw e;
+        return stuur(res, e.status, pagina('E-mailadres bevestigen', `<p role="alert">${esc(e.message)}</p>`, account));
       }
     }
     if (!account) {
@@ -75,18 +145,26 @@ export function maakApp({ db, stripe, logger, env = process.env, veiligeCookie =
       return naar(res, '/inloggen');
     }
     if (m === 'POST' && pad === '/uitloggen') { await acc.logout(db, token); zetCookie(res, '', 0); return naar(res, '/inloggen'); }
+    if (m === 'POST' && pad === '/email-bevestigen/opnieuw') {
+      if (account.geverifieerd) return naar(res, '/dashboard');
+      const wacht = begrenzer.wachttijd([['opnieuw_account', account.id]]);
+      if (wacht) return teVeel(res, 'opnieuw', wacht, 'E-mailadres bevestigen');
+      begrenzer.tel([['opnieuw_account', account.id]]);
+      const ok = await mail('verificatie', account.email, verificatieMail(await acc.maakVerificatieToken(db, account.id)), account.id);
+      return stuur(res, ok ? 200 : 503, pagina('E-mailadres bevestigen', ok ? '<p>We hebben je een nieuwe mail gestuurd. Klik op de link in die mail.</p>' : '<p role="alert">Het versturen van de mail lukte niet. Probeer het later opnieuw.</p>', account));
+    }
     if (m === 'GET' && pad === '/dashboard') {
       const lijst = await sites.lijstSites(db, account.id);
       const pk = laadPakketten().pakketten[account.pakket];
       const rijen = lijst.map((s) => `<li>${esc(s.domein)} · ${esc(s.platform)} · ${esc(s.land)}</li>`).join('') || '<li>Nog geen sites. <a href="/sites/nieuw">Voeg uw eerste site toe</a>.</li>';
-      return stuur(res, 200, pagina('Dashboard', `<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
+      return stuur(res, 200, pagina('Dashboard', `${account.geverifieerd ? '' : bevestigMelding()}<p>Pakket: <strong>${esc(pk.naam)}</strong> (${esc(lijst.length)} van ${pk.max_sites} sites) · Abonnement: ${esc(account.abonnement_status)}</p><h2>Uw sites</h2><ul>${rijen}</ul>`, account));
     }
     if (m === 'GET' && pad === '/api/sites') return json(res, 200, { sites: await sites.lijstSites(db, account.id) });
     if (m === 'GET' && pad.startsWith('/api/sites/')) {
       const s = await sites.haalSite(db, account.id, pad.slice('/api/sites/'.length));
       return s ? json(res, 200, s) : json(res, 404, { fout: 'Site niet gevonden.' });
     }
-    if (m === 'GET' && pad === '/sites/nieuw') return stuur(res, 200, pagina('Site toevoegen', siteForm(), account));
+    if (m === 'GET' && pad === '/sites/nieuw') return stuur(res, 200, pagina('Site toevoegen', account.geverifieerd ? siteForm() : bevestigMelding(), account));
     if (m === 'POST' && pad === '/sites/nieuw') {
       const f = formulier(await leesBody(req));
       try {
@@ -95,6 +173,7 @@ export function maakApp({ db, stripe, logger, env = process.env, veiligeCookie =
         return naar(res, '/dashboard');
       } catch (e) {
         if (!(e instanceof acc.Fout)) throw e;
+        if (e.onbevestigd) return stuur(res, e.status, pagina('Site toevoegen', bevestigMelding(), account));
         const up = e.upgrade ? `<p><a href="/pakketten">Bekijk de pakketten en upgrade</a></p>` : '';
         return stuur(res, e.status, pagina('Site toevoegen', `<p role="alert">${esc(e.message)}</p>${up}${siteForm()}`, account));
       }
@@ -122,7 +201,20 @@ export function maakApp({ db, stripe, logger, env = process.env, veiligeCookie =
 }
 
 function inlogForm(actie, knop, fout) {
-  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}<form method="post" action="${actie}"><label>E-mailadres <input type="email" name="email" required autocomplete="email"></label><label>Wachtwoord <input type="password" name="wachtwoord" required minlength="12"></label><button>${esc(knop)}</button></form>`;
+  const vergeten = actie === '/inloggen' ? '<p><a href="/wachtwoord-vergeten">Wachtwoord vergeten?</a></p>' : '';
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}<form method="post" action="${actie}"><label>E-mailadres <input type="email" name="email" required autocomplete="email"></label><label>Wachtwoord <input type="password" name="wachtwoord" required minlength="12"></label><button>${esc(knop)}</button></form>${vergeten}`;
+}
+
+function vergetenForm() {
+  return '<p>Vul je e-mailadres in. Je krijgt dan een mail met een link om een nieuw wachtwoord te kiezen.</p><form method="post" action="/wachtwoord-vergeten"><label>E-mailadres <input type="email" name="email" required autocomplete="email"></label><button>Stuur de link</button></form>';
+}
+
+function herstelForm(token, fout) {
+  return `${fout ? `<p role="alert">${esc(fout)}</p>` : ''}<form method="post" action="/wachtwoord-herstellen"><input type="hidden" name="token" value="${esc(token)}"><label>Nieuw wachtwoord <input type="password" name="wachtwoord" required minlength="12" autocomplete="new-password"></label><button>Wachtwoord opslaan</button></form>`;
+}
+
+function bevestigMelding() {
+  return '<section role="status"><p><strong>Bevestig je e-mailadres.</strong> We hebben je een mail gestuurd met een link. Daarna kun je je site koppelen.</p><form method="post" action="/email-bevestigen/opnieuw"><button>Stuur de mail opnieuw</button></form></section>';
 }
 
 function siteForm() {

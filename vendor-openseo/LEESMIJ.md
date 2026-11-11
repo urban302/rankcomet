@@ -9,7 +9,7 @@ In stap 0 (opschonen van de fork) is alleen deze code bewaard. De rest van OpenS
 - `@/` in de imports verwijst naar `vendor-openseo/src/`.
 - Een deel van de imports wijst naar code die weg is (billing, database, R2-cache, Every App, `cloudflare:workers`). Die stukken vervangt de adapter door eigen kerncode. Zie "Losse eindjes".
 - De `*.test.ts`-bestanden zijn Vitest-tests van OpenSEO. Ze draaien hier niet, maar laten zien wat de code hoort te doen. Gebruik ze als voorbeeld bij het overzetten.
-- Externe pakketten die deze code gebruikt: `zod`, `remeda`, `tldts`, `drizzle-orm`. Die staan niet in `rankcomet-core/vendor/`. Overzetten gebeurt in gewoon JavaScript of na overleg over een nieuw pakket.
+- Externe pakketten die deze code gebruikt: `zod`, `remeda`, `tldts`, `drizzle-orm`. Die staan niet in `rankcomet-core/vendor/`. Besloten door Erwin: de adapter zet de code zelf om naar gewoon JavaScript, zonder nieuwe pakketten.
 
 ## Houden: zoekwoordonderzoek
 Wordt later via een adapter aan `rankcomet-core` gekoppeld (eigen map, bijvoorbeeld `rankcomet-core/src/zoekwoorden/`).
@@ -26,8 +26,8 @@ Wordt later via een adapter aan `rankcomet-core` gekoppeld (eigen map, bijvoorbe
 | `shared/keyword-locations.ts`, `serp-location-search.ts`, `google-serp-url.ts`, `researchScope.ts` | Landen, talen en locaties; SERP-URL; onderzoeksbereik |
 | `server/lib/errors.ts`, `shared/error-codes.ts` | Fouttypes die de code hierboven gebruikt |
 
-## Later: nog niet beoordeeld
-Bewaard omdat een later blok iets vergelijkbaars nodig heeft. Pas beslissen bij dat blok.
+## Later: blijft staan
+Bewaard omdat een later blok iets vergelijkbaars nodig heeft (besloten door Erwin: blijft staan).
 
 | Pad (onder `src/`) | Voor welk blok |
 |---|---|
