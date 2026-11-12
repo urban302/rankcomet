@@ -42,7 +42,7 @@ export function nepMailer() {
 export function linkUit(mail) { const u = new URL(mail.tekst.match(/https:\/\/\S+/)[0]); return { pad: u.pathname, token: u.searchParams.get('token') }; }
 
 // Ruime grenzen, zodat tests die veel accounts aanmaken niet tegen de rate limiting aanlopen.
-const RUIM = Object.fromEntries(Object.keys(STANDAARD_GRENZEN).map((k) => [k, { max: 1e6, ms: 60000 }]));
+export const RUIM = Object.fromEntries(Object.keys(STANDAARD_GRENZEN).map((k) => [k, { max: 1e6, ms: 60000 }]));
 
 // Nep-internet voor de koppelcontrole: een tabel van url -> html (of een functie). Alles wat er niet in
 // staat, bestaat niet. Gebruikt dezelfde ophaler als productie, met een nep-DNS en nep-verbinding.
