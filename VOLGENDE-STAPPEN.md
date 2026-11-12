@@ -106,6 +106,9 @@ Gedaan: `rankcomet-core/src/wachtrij.js` met de tabel `taken`. De controles en d
 ### Stap 12: je-vorm, KLAAR
 Gedaan: de laatste zes teksten in de u-vorm (pakketlimieten in `sites.js` en `artikelen.js`, de pagina Over) staan in de je-vorm, de tests die erop matchen zijn aangepast, en `tests/je-vorm.test.js` bewaakt dat de u-vorm niet terugkomt in app, mails, prompts, publieke pagina's en plugin.
 
+### Stap 13: mailer (SMTP), KLAAR
+Gedaan: `rankcomet-core/src/smtp.js`, een SMTP-client op node:net en node:tls (STARTTLS of directe TLS, AUTH PLAIN, RFC 2047). Env: RC_SMTP_HOST, RC_SMTP_POORT, RC_SMTP_TLS, RC_SMTP_GEBRUIKER, RC_SMTP_WACHTWOORD, RC_SMTP_CA, RC_MAIL_AFZENDER. Zonder RC_SMTP_HOST werkt de app als voorheen (mail mislukt netjes). Getest tegen een nep-mailserver, ook via de app. Aannames A77 en A78. Live sinds 11-11 op app.rankcomet.ai (zonder mailer); de Serverbeheerder zet de SMTP-env zodra Erwin een relay kiest.
+
 ## Daarna
 - Bèta NL, januari 2027, zodra de open vragen voor Erwin zijn beantwoord en de spullen er zijn.
 

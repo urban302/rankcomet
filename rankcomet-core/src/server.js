@@ -12,6 +12,7 @@ import { verstuurMaandrapporten } from './rapport.js';
 import { startWerker } from './wachtrij.js';
 import { laadSleutel } from './geheimen.js';
 import { controleerStripeEnv } from './stripe.js';
+import { controleerMailEnv, maakMailer } from './smtp.js';
 import { bewaartermijnDagen, laadPakketten } from './config.js';
 
 export async function startControles(env = process.env) {
@@ -21,6 +22,7 @@ export async function startControles(env = process.env) {
   laadSleutel(env);
   controleerStripeEnv(env);
   controleerDataforseoEnv(env);
+  controleerMailEnv(env);
   laadPakketten();
   bewaartermijnDagen(env);
 }
@@ -31,9 +33,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const logger = maakLogger(db, { stil: false });
   // [A] De echte Stripe-client wordt pas in een latere levering gekoppeld; R1 heeft alleen een mock.
   const stripe = { checkout: { sessions: { create: async () => { throw new Error('Stripe-client nog niet gekoppeld (R1)'); } } } };
-  // [A34] Nog geen echte mailer (SMTP of mailprovider in de EU volgt). Tot dan mislukt elke mail; de app
-  // logt dat en de klant kan het later opnieuw proberen.
-  const mailer = { stuur: async () => { throw new Error('Mailer nog niet gekoppeld (R3)'); } };
+  // Stap 13: SMTP-mailer (src/smtp.js). Zonder RC_SMTP_HOST mislukt elke mail netjes (A34) en logt de app dat.
+  const mailer = maakMailer(process.env, logger);
+  if (!mailer.gekoppeld) process.stdout.write('Let op: mail is nog niet gekoppeld (RC_SMTP_HOST ontbreekt)\n');
   const dataforseo = maakDataforseo(process.env, globalThis.fetch, logger);
   const google = maakGoogle(process.env, globalThis.fetch, logger);
   const app = maakApp({ db, stripe, mailer, ophalen: maakOphaler(), model: maakModel(), dataforseo, google, logger });
